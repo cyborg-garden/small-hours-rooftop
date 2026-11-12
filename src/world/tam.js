@@ -6,6 +6,8 @@ import { createFigure, walkGait, stairGait } from './figure.js';
 
 const _v = new THREE.Vector3(), _w = new THREE.Vector3();
 export const TRAY = { w: 0.86, d: 0.56 };
+const BUCKET_AIM = new THREE.Vector3(0.0, -0.1, 0.01);   // the bent back carries the shoulder forward: aim that much short and low, and the hand lands on the spot
+const BUCKET_GRIP = 0.43;   // the hand on the handle, above the bucket's base (world/index.js BUCKET_HANG)
 export const TRAY_SLOTS = [[-0.28, 0.14], [0, 0.14], [0.28, 0.14], [-0.28, -0.14], [0, -0.14], [0.28, -0.14]].map(([x, z]) => new THREE.Vector3(x, 0.022, z));
 
 export function makeTray() {
@@ -66,6 +68,9 @@ export function createTam() {
       const down = !climbing && !leaving ? smooth(0.4, 1.4, tStage) * (1 - smooth(1.6, 2.4, tStage)) : 0, held = env.bucketHeld;
       if (held) { p.aRx = -D.sw - 0.09; p.aRy = D.wrist + 0.02 - 0.22 * down; p.aRz = 0.06 + 0.16 * down; p.curlR = 1.05; p.spRZ += 0.07; p.chRZ = 0.05; p.aLx += 0.06; p.aLy += 0.05; }
       p.spRX += 0.5 * down; p.chRX += 0.25 * down; p.hipY -= 0.14 * down; p.hipZ -= 0.1 * down;
+      // the hand goes with the handle to where the bucket will stand, so the bucket never leaves it in the air
+      if (env.bucketSet) { const k = env.bucketSet.k, g = F(_w.copy(env.bucketSet.at).add(BUCKET_AIM), _w); g.y += BUCKET_GRIP + 0.075 * D.hs;
+        p.aRx = lerp(p.aRx, g.x, k); p.aRy = lerp(p.aRy, g.y, k); p.aRz = lerp(p.aRz, g.z, k); p.chRX += 0.14 * k; }   // and the chest tips a little further, so the arm is long enough
     }
     // the night after, by hand: their left hand comes up under the cup she holds out, palm up, a hand's breadth below it
     if (T.touch > 0.001 && env.offerCup && !climbing && !leaving) {

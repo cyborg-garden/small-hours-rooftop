@@ -3,7 +3,7 @@
 // this one builds them, places the things people carry (the tray, the bucket, the stake, the cup) from the
 // people's own bones, and hands each figure the few world points its pose needs.
 import * as THREE from 'three';
-import { Batch, paint, smooth, clamp, follow } from './kit.js';
+import { Batch, paint, smooth, clamp, follow, lerp } from './kit.js';
 import { createHot } from './hot.js';
 import { buildSky } from './sky.js';
 import { buildCity } from './city.js';
@@ -27,6 +27,7 @@ const JO_HOLD = new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0, 0.98, 
 // after the hand-off the empty tray goes back to the neighbour and leaves with them: it is never stowed among the pots
 // the bucket, set down on the deck at the stair head, by the shelf's end
 export const BUCKET_DOWN = new THREE.Vector3(-2.64, 0, 4.42);
+export const BUCKET_HANG = 0.43;   // from the hand that holds its handle down to its base
 // the book, the night after by sensor: open on her knees, the spine toward her, tipped up to catch the stair light.
 // In figure space (+z in front of her); the hands hold the two outer edges.
 const BOOK_LOCAL = new THREE.Matrix4().compose(new THREE.Vector3(0.0, 0.64, 0.3), new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.85, 0, 0)), new THREE.Vector3(1, 1, 1));
@@ -123,8 +124,12 @@ export function createWorld(render, state, bus) {
     const nudge = T.nudge || 0;   // the neighbour lifts the tray a little toward her when nobody takes it
     M.tam.copy(tam.fig.rootMatrix).multiply(nudge > 0.001 ? _m1.makeTranslation(0, 1.24 + 0.14 * nudge, 0.5 + 0.07 * nudge) : TAM_HOLD); M.jo.copy(jo.fig.rootMatrix).multiply(JO_HOLD);
     if (owner === 'tam') M.tray.copy(M.tam);
-    else if (owner === 'take') lerpMatrix(M.tam, M.jo, smooth(0.3, 0.78, u), M.tray);
-    else if (owner === 'give') { M.tmp.copy(M.jo).multiply(_m1.makeTranslation(0, 0.14, 0.06)); lerpMatrix(M.tmp, M.tam, smooth(0.25, 0.7, u), M.tray); }
+    // between the two of them stands the grab post at the stair head (its bent top is at y 0.98). The tray crosses
+    // that edge above it: lifted early on the way to her, lowered late on the way back.
+    else if (owner === 'take') { const k = smooth(0.3, 0.78, u); lerpMatrix(M.tam, M.jo, k, M.tray);
+      M.tray.elements[13] = lerp(M.tam.elements[13], M.jo.elements[13], smooth(0, 0.42, k)) + 0.07 * Math.sin(Math.PI * k); }
+    else if (owner === 'give') { const k = smooth(0.25, 0.7, u); M.tmp.copy(M.jo).multiply(_m1.makeTranslation(0, 0.14, 0.06)); lerpMatrix(M.tmp, M.tam, k, M.tray);
+      M.tray.elements[13] = lerp(M.tmp.elements[13], M.tam.elements[13], smooth(0.62, 1, k)); }
     else if (owner === 'jo') { M.tray.copy(M.jo); if (placed) M.tray.multiply(_m1.makeTranslation(0, 0.14, 0.06)); }   // empty, it is carried higher, clear of the plant tops
     else if (owner === 'place') {
       // held out over the shelf while the pots go down onto the lower tier, then lifted back, empty, to carry
@@ -211,11 +216,15 @@ export function createWorld(render, state, bus) {
       if (T.present && (owner === 'tam' || owner === 'take' || (owner === 'give' && u > 0.3) || (state.beat === 'turn' && !T.hasTray && ts < 2.4)))
         env.trayHands = grip(TAM_GRIP, owner === 'tam' || owner === 'give' || (owner === 'take' && T.hasTray) ? M.tray : M.tam);
       env.offerCup = T.touch > 0.001 && jo.cup.visible ? offerCup.setFromMatrixPosition(jo.cup.matrix) : null;
+      // setting the bucket down: the hand takes the handle to the deck and lets go there
+      const setK = bucket.visible && T.stage !== 'climbing' ? smooth(0.4, 1.2, ts) * (1 - smooth(1.5, 2.3, ts)) : 0;
+      env.bucketSet = setK > 0.001 ? { at: BUCKET_DOWN, k: setK } : null;
       tam.update(state, env, dt, t);
       if (bucket.visible) {
         if (env.bucketHeld) {
-          tam.handWorld('R', bucketAt); bucketAt.y -= 0.43;
-          const down = T.stage === 'climbing' ? 0 : smooth(0.4, 1.45, ts); bucketAt.lerp(BUCKET_DOWN, down);
+          // it hangs from the hand until it stands on the deck: never in the air between the two
+          tam.handWorld('R', bucketAt); bucketAt.y -= BUCKET_HANG;
+          if (T.stage !== 'climbing') { if (bucketAt.y < 0) bucketAt.y = 0; bucketAt.lerp(BUCKET_DOWN, smooth(1.25, 1.45, ts)); }
         } else bucketAt.copy(BUCKET_DOWN);
         bucket.matrix.makeRotationY(0.4).setPosition(bucketAt); bucket.matrixWorldNeedsUpdate = true;
       }

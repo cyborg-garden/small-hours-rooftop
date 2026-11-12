@@ -8,6 +8,8 @@ import { TEXT } from './script.js';
 
 const POUR = 2.4;                                   // the pose the game is named for, held this long
 const LOOKS = ['marlow', 'city', 'chair', 'hatch', 'sensor'];
+const SUM_AT = 2.0, SUM_HOLD = 5.6;                   // first light: when Marlow's 4:31 summary is said, and how long it stays
+const CHOICE_ARM = 1.2;                             // the choice hears nothing until its two labels have faded in: a tap left over from the watering cannot choose
 const TO_HATCH = -1.2, TO_SHELF = 0.3;              // headings: toward the stair head, toward the pots
 // where Jo stands to take the tray (and, the night after, to reach the bucket). The frozen tray stand is inside
 // the shelf's left end; this one is clear of it, in the gap by the stair head (world's suggestion).
@@ -58,6 +60,7 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
   // ---- the one verb -------------------------------------------------------------------------------
   function tap(id) {
     const a = ANCHORS[id]; if (!a || !state.hot.includes(id)) return false;
+    if (a.kind === 'choice' && state.beat === 'choice' && state.beatTime < CHOICE_ARM) return false;
     ui.ripple(id); lastInput = state.time; showWater = 0;
     if (a.kind === 'look' || (id === 'sensor' && state.beat !== 'choice')) {
       state.counts.looks++; lastLook = state.beatTime; bus.emit(EV.LOOK, { id });
@@ -66,7 +69,7 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
       say('look', id === 'city' && state.night >= 2 ? TEXT.look.cityLate : id === 'chair' && state.night >= 3 ? TEXT.look.chairJar : TEXT.look[id]);
       return true;
     }
-    if (a.kind === 'choice') return choose(id);
+    if (a.kind === 'choice') return choose(id);   // (never reached before CHOICE_ARM: see the top of tap)
     if (jo.busy()) { queued = id; return true; }          // exactly one tap waits its turn
     const j = J();
     if (a.kind === 'pot') triedPot = true;
@@ -269,8 +272,8 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
     n3_water() {},
     firstlight() {
       ui.clearLine(); state.camera.shot = 'choice'; jo.whenFree(() => jo.walkTo({ x: 0.98, z: 3.6, heading: -1.05 }));
-      at(2.0, () => { bus.emit(EV.MARLOW_TICK, {}); marlow('sum', 5.6); });
-      at(8.5, () => enter('choice'));
+      at(SUM_AT, () => { bus.emit(EV.MARLOW_TICK, {}); marlow('sum', SUM_HOLD); });
+      at(SUM_AT + SUM_HOLD + 0.1, () => enter('choice'));   // the labels come up as the line goes: no dead air between them
     },
     choice() { ui.clearLine(); bus.emit(EV.CHOICE_OPEN, {}); },
     epilogue() {
