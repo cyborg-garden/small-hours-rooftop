@@ -6,10 +6,31 @@
 //
 // The limiter is a safety net, not a sound. The mix is built to sit under it: see the level table in BIBLE.md.
 import { SOUNDS, META, reverbBuffer } from './sfx.js';
+import { TV } from '../core/surface.js';
 
 export const TRIM = 0.5;   // after the limiter. The compressor adds its own make-up gain; this takes most of it back.
 
-export function masterChain(ctx, volume) {
+// On the console the sound comes out of TV speakers, which carry next to nothing under about 150 Hz. The same mix,
+// voiced for them: what they can carry goes through a little louder, and what they cannot (footsteps on the stairs,
+// the door, the barrel, the low of the pad) is folded up an octave and more, so it is heard as its own overtones.
+//
+//   in -> high-pass 140 -----------------------------\
+//   in -> low-pass 190 -> fold (|x|) -> band 150..900 -> lift -> out
+export const TV_VOICE = { cut: 140, low: 170, fold: 1.3, lift: 1.5 };
+export function tvVoicing(ctx) {
+  const V = TV_VOICE, inp = ctx.createGain(), out = ctx.createGain(); out.gain.value = V.lift;
+  const filt = (type, f, q = 0.707) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; };
+  const hp = filt('highpass', V.cut); inp.connect(hp); hp.connect(out);
+  // |x| has no fundamental: a tone at f comes out at 2f, 4f, 6f, as loud as it went in, however quiet it is
+  const fold = ctx.createWaveShaper(), n = 4097, curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) curve[i] = Math.abs((i / (n - 1)) * 2 - 1);
+  fold.curve = curve; fold.oversample = '4x';
+  const lo = filt('lowpass', V.low), lo2 = filt('lowpass', V.low), up = filt('highpass', 150), up2 = filt('highpass', 150), top = filt('lowpass', 900), g = ctx.createGain(); g.gain.value = V.fold;
+  inp.connect(lo); lo.connect(lo2); lo2.connect(fold); fold.connect(up); up.connect(up2); up2.connect(top); top.connect(g); g.connect(out);
+  return { input: inp, output: out };
+}
+
+export function masterChain(ctx, volume, tv = false) {
   const vol = ctx.createGain(); vol.gain.value = volume;
   const lim = ctx.createDynamicsCompressor();
   lim.threshold.value = -14; lim.knee.value = 6; lim.ratio.value = 20; lim.attack.value = 0.003; lim.release.value = 0.25;
@@ -19,11 +40,12 @@ export function masterChain(ctx, volume) {
   for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1, a = Math.abs(x); curve[i] = Math.sign(x) * (a <= 0.5 ? a : 0.5 + 0.38 * Math.tanh((a - 0.5) / 0.38)); }
   shaper.curve = curve;
   vol.connect(lim); lim.connect(trim); trim.connect(shaper); shaper.connect(ctx.destination);
+  if (tv) { const voice = tvVoicing(ctx); voice.output.connect(vol); return { input: voice.input, volume: vol.gain, output: shaper }; }
   return { input: vol, volume: vol.gain, output: shaper };
 }
 
-export function createEngine(ctx, { volume = 0.6, solo = null } = {}) {
-  const master = masterChain(ctx, volume);
+export function createEngine(ctx, { volume = 0.6, solo = null, tv = TV } = {}) {
+  const master = masterChain(ctx, volume, tv);
   const scene = ctx.createGain(); scene.connect(master.input);
   const mk = (name) => {
     const bus = ctx.createGain(), duck = ctx.createGain();

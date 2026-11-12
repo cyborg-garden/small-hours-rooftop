@@ -172,8 +172,8 @@ export function createCues({ engine, ambience, music, rng }) {
 }
 
 // The whole instrument on one context. Live play makes one; every offline measurement makes another.
-export function createRig(ctx, { volume = 0.6, seed = 340, solo = null } = {}) {
-  const rng = createRng((seed ^ 0xa0d10) >>> 0), engine = createEngine(ctx, { volume, solo });
+export function createRig(ctx, { volume = 0.6, seed = 340, solo = null, tv } = {}) {
+  const rng = createRng((seed ^ 0xa0d10) >>> 0), engine = createEngine(ctx, { volume, solo, tv });
   engine.scene.value = 0;
   let view = null;
   const panOfPot = (i) => (view && ANCHORS['p' + i] ? place(view, ANCHORS['p' + i].pos.x, ANCHORS['p' + i].pos.z).pan : 0);

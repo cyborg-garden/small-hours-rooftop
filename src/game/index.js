@@ -35,7 +35,7 @@ export function createGame({ canvas, state, bus, render, world, audio }) {
   function again() { if (restarting) return; restarting = true; ui.showEnd(false); state.hot = []; fadeGoal = 0; }
 
   // a tap on nothing still leaves a small ring where the finger landed: the roof heard it, there was nothing there
-  const input = createInput({ canvas, state, render, world, onTap: tap, onMiss: (x, y) => { bus.emit(EV.TAP_MISS, { x, y }); if (ui && state.begun) ui.ripple(null, { x, y }); }, onBegin: begin, onKey: (k) => { if (k === 'mute') ui.toggleMute(); } });
+  const input = createInput({ canvas, state, render, world, onTap: tap, onMiss: (x, y) => { bus.emit(EV.TAP_MISS, { x, y }); if (ui && state.begun) ui.ripple(null, { x, y }); }, onBegin: begin, onAgain: () => again(), onKey: (k) => { if (k === 'mute') ui.toggleMute(); } });
   ui = createUI({ state, bus, render, audio, input, onBegin: begin, onTap: tap, onAgain: again });
   arc = createArc({ state, bus, render, ui, jo, tam, say, fade: (g) => { fadeGoal = g; } });
 

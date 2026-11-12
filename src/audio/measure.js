@@ -123,3 +123,17 @@ export function loudnessPerSecond(chs, sr) {
   for (let s = 0; (s + 1) * sr <= n; s++) { let q = 0; for (let i = s * sr; i < (s + 1) * sr; i++) q += mono[i] * mono[i]; out.push(Math.round(db(Math.sqrt(q / sr)) + describe(spectrum(mono, s * sr, (s + 1) * sr, 2048), sr).aOffsetDb)); }
   return out;
 }
+
+// A TV speaker, for tests: a fourth-order high-pass (two biquads, Butterworth) at fc. What comes out is what a small
+// speaker that carries nothing below fc would put in the room.
+export function tvSpeaker(d, sr, fc = 150) {
+  let x = Float32Array.from(d);
+  for (const Q of [0.5412, 1.3066]) {
+    const w = 2 * Math.PI * fc / sr, cs = Math.cos(w), al = Math.sin(w) / (2 * Q), a0 = 1 + al;
+    const b0 = (1 + cs) / 2 / a0, b1 = -(1 + cs) / a0, b2 = b0, a1 = -2 * cs / a0, a2 = (1 - al) / a0, y = new Float32Array(x.length);
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (let i = 0; i < x.length; i++) { const v = b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2; x2 = x1; x1 = x[i]; y2 = y1; y1 = v; y[i] = v; }
+    x = y;
+  }
+  return x;
+}

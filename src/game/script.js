@@ -4,6 +4,7 @@ export const TEXT = {
   sub: 'A roof garden, a little before four.',
   begin: 'Begin',
   hint: 'Tap things. Drag to look around.',
+  hintTv: 'Press the button to begin. Stick to choose, button to use.',
   sound: 'Sound',
   soundOff: 'Sound off',
   again: 'Begin again',

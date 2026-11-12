@@ -113,3 +113,21 @@ canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block;
   #sh-ui .line, #sh-ui .line.on, #sh-ui .card, #sh-ui .card.on, #sh-ui .choice, #sh-ui .arrow, #sh-ui .timecard, #sh-ui .ptag { transition-duration: .01s; transition-delay: 0s; }
   #sh-ui .arrow.on i, #sh-ui .arrow.on.nudge i { animation: none; }
 }
+
+/* On the xbox50 the roof is on a TV across a room, played with one stick and one button. Words are set in shares of
+   the screen, not pixels, and keep clear of the edge a TV may crop and of the console's own hint at the foot. */
+#sh-ui.tv .cap { bottom: 10vh; }
+#sh-ui.tv .line { font-size: 3.3vmin; max-width: 84vw; }
+#sh-ui.tv .line.marlow { font-size: 2.9vmin; }
+#sh-ui.tv .timecard { font-size: 4.6vmin; }
+#sh-ui.tv .card { padding: 9vh 6vw 11vh; }
+#sh-ui.tv .sub { font-size: 3.4vmin; }
+#sh-ui.tv .small { font-size: 2.3vmin; }
+#sh-ui.tv .ptag { font-size: 3.2vmin; }
+#sh-ui.tv .choice { font-size: 2.9vmin; }
+#sh-ui.tv .ledger { font-size: 2.9vmin; max-width: 84vw; }
+#sh-ui.tv .snd { display: none; }
+#sh-ui.tv .fx .focus { stroke-width: .42vmin; stroke-dasharray: 1.1vmin 1.2vmin; }
+#sh-ui.tv .fx .ring { stroke-width: .3vmin; }
+#sh-ui.tv .fx .string, #sh-ui.tv .fx .knot { stroke-width: .25vmin; }
+#sh-ui.tv .begin, #sh-ui.tv .again, #sh-ui.tv .choice.focus { outline: .3vmin dashed #EFE6D2; outline-offset: .7vmin; }

@@ -1,7 +1,12 @@
 // Bundles src/ and three.js into ONE self-contained file: dist/small-hours.html
 // Shape: <title>, <meta viewport>, <style>, <canvas>, <script>. No doctype, html, head or body (the host wraps it).
+//
+//   node tools/build.mjs           the one file, as above. Every gate in tools/ plays this.
+//   node tools/build.mjs --site    also writes site/: the same game as a page with its code and style in files of
+//                                  their own (index.html, game.js, style.css) plus meta.json and the three.js licence. This is what the
+//                                  arcade serves. A page with no inline script runs anywhere, Discord included.
 import { build } from 'esbuild';
-import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -38,3 +43,34 @@ writeFileSync(outFile, html);
 const mb = Buffer.byteLength(html) / 1048576;
 console.log(`${outFile.replace(root + '/', '')}  ${mb.toFixed(2)} MB  (${js.split('\n').length} bundle lines)`);
 if (mb > 6) { console.error('BUILD FAILED: over 6 MB'); process.exit(1); }
+
+const siteArg = process.argv.find((a) => a === '--site' || a.startsWith('--site='));
+if (siteArg) {
+  const site = siteArg.includes('=') ? siteArg.slice(7) : join(root, 'site');
+  const meta = JSON.parse(readFileSync(join(root, 'meta.json'), 'utf8'));
+  const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const page = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>${esc(meta.title)}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="description" content="${esc(meta.tagline)}">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#171925">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="c" tabindex="0" aria-label="Small Hours. A rooftop garden at night."></canvas>
+<noscript>Small Hours needs JavaScript to run.</noscript>
+<script src="game.js"></script>
+</body>
+</html>
+`;
+  rmSync(site, { recursive: true, force: true }); mkdirSync(site, { recursive: true });
+  writeFileSync(join(site, 'index.html'), page); writeFileSync(join(site, 'game.js'), js + '\n'); writeFileSync(join(site, 'style.css'), css);
+  copyFileSync(join(root, 'meta.json'), join(site, 'meta.json'));
+  // three.js is bundled into game.js with its comments stripped: its licence travels beside it
+  copyFileSync(join(root, 'node_modules/three/LICENSE'), join(site, 'three.LICENSE.txt'));
+  console.log(`${site.replace(root + '/', '')}/  index.html, game.js, style.css, meta.json, three.LICENSE.txt`);
+}

@@ -2,12 +2,13 @@
 // or the wheel lean in. Nothing here needs pointer lock, fullscreen or a keyboard.
 import { ANCHORS, ALIASES } from '../core/layout.js';
 import { ORBIT } from '../render/rig.js';
+import { TV } from '../core/surface.js';
 
 const TAP_SLOP = 9;                         // px a press may wander and still be a tap
 const O = { yaw: 0.5, pitchUp: 0.1, pitchDown: 0.14, zoomMin: 0.85, zoomMax: 1.2, ...(ORBIT || {}) };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-export function createInput({ canvas, state, render, world, onTap, onMiss, onBegin, onKey }) {
+export function createInput({ canvas, state, render, world, onTap, onMiss, onBegin, onAgain, onKey }) {
   const pointers = new Map(); let down = null, pinch = 0, idle = 0, kbd = false, hover = null, mouse = null;
 
   // Where a thing is right now. Everything sits at its frozen anchor except the cup, which is in Jo's hand.
@@ -96,14 +97,16 @@ export function createInput({ canvas, state, render, world, onTap, onMiss, onBeg
   // Keyboard is a bonus: left and right walk the focus through what can be used, Enter or Space taps it.
   window.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const ae = document.activeElement, onButton = !!ae && ae.tagName === 'BUTTON' && !ae.disabled;
+    // on the console the keys are made by the stick and cannot press a button: Enter always belongs to the roof
+    const ae = document.activeElement, onButton = !TV && !!ae && ae.tagName === 'BUTTON' && !ae.disabled;
     if (e.key === 'm' || e.key === 'M') { onKey && onKey('mute'); return; }
     if (!state.begun) { if ((e.key === 'Enter' || e.key === ' ') && !onButton) { onBegin && onBegin(); e.preventDefault(); } return; }
+    if (TV && state.beat === 'end') { if ((e.key === 'Enter' || e.key === ' ') && state.beatTime > 2) { onAgain && onAgain(); e.preventDefault(); } return; }
     const list = state.hot.filter((id) => ANCHORS[id] && ANCHORS[id].kind !== 'look' && ANCHORS[id].kind !== 'alias' && !(id === 'sensor' && state.beat !== 'choice'));
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       if (!list.length) return;
       const i = list.indexOf(state.focus), n = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1;
-      state.focus = list[i < 0 ? (n > 0 ? 0 : list.length - 1) : (i + n + list.length) % list.length]; kbd = true; e.preventDefault();
+      state.focus = list[i < 0 ? (n > 0 ? 0 : list.length - 1) : (i + n + list.length) % list.length]; kbd = true; state.focusByStick = true; e.preventDefault();
     } else if (e.key === 'Enter' || e.key === ' ') {
       if (onButton) return;
       if (state.focus && list.includes(state.focus)) { kbd = true; onTap(state.focus, null); e.preventDefault(); }
@@ -111,7 +114,7 @@ export function createInput({ canvas, state, render, world, onTap, onMiss, onBeg
   });
   return {
     pick, where, radiusOf,
-    get keyboard() { return kbd; },
+    get keyboard() { return kbd || TV; },
     // left alone, the roof turns back to where the shot was framed: slowly, and only after a pause
     get hover() { return hover; },
     update(dt) {

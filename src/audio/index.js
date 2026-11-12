@@ -19,7 +19,7 @@ import { EV } from '../core/events.js';
 import { SOUNDS, SOUND_NAMES, META } from './sfx.js';
 import { createEngine } from './engine.js';
 import { createRig, snap } from './cues.js';
-import { analyse, analyseScene, loudnessPerSecond } from './measure.js';
+import { analyse, analyseScene, loudnessPerSecond, tvSpeaker } from './measure.js';
 
 export function createAudio(state, bus) {
   let ctx = null, rig = null, rec = null, recPoll = 0, ahead = 0, lastCtx = 0, warp = false;
@@ -54,10 +54,11 @@ export function createAudio(state, bus) {
     const sr = opts.sr || 44100, probe = new OfflineAudioContext(1, 128, sr);
     const send = opts.send ?? (META[name] || {}).send ?? 0;
     const dur = (SOUNDS[name](probe, probe.createGain(), 0, opts) || 1) + (send > 0 ? 2.5 : 0.3);
-    const off = new OfflineAudioContext(2, Math.ceil((dur + 0.05) * sr), sr), eng = createEngine(off, { volume: opts.volume ?? 0.6 });
+    const off = new OfflineAudioContext(2, Math.ceil((dur + 0.05) * sr), sr), eng = createEngine(off, { volume: opts.volume ?? 0.6, tv: opts.tv });
     eng.voice(name, opts, 0.05);
     const buf = await off.startRendering();
-    const chs = [buf.getChannelData(0), buf.getChannelData(1)], res = { name, seconds: +dur.toFixed(2), ...analyse(chs, sr) };
+    // opts.tv: the console's voicing, on or off. opts.speaker: heard through a TV speaker that loses everything below that many Hz
+    const chs = [buf.getChannelData(0), buf.getChannelData(1)].map((d) => (opts.speaker ? tvSpeaker(d, sr, opts.speaker) : d)), res = { name, seconds: +dur.toFixed(2), ...analyse(chs, sr) };
     if (opts.env) {   // peak per window, in dB, for looking at the shape of a sound
       const w = Math.round(sr * (opts.envMs || 10) / 1000); res.env = [];
       for (let i = 0; i + w <= chs[0].length; i += w) { let p = 0; for (const d of chs) for (let k = i; k < i + w; k++) p = Math.max(p, Math.abs(d[k])); res.env.push(Math.round(20 * Math.log10(Math.max(p, 1e-6)))); }
@@ -68,7 +69,7 @@ export function createAudio(state, bus) {
   async function renderScene(opts) {
     const records = opts.records || rec; if (!records || !records.length) return { error: 'nothing recorded' };
     const from = opts.from ?? 0, to = opts.to ?? records[records.length - 1].t + 3, sr = opts.sr || 32000, dur = to - from;
-    const off = new OfflineAudioContext(2, Math.ceil(dur * sr), sr), r = createRig(off, { volume: opts.volume ?? 0.6, seed: opts.seed ?? state.seed, solo: opts.solo || null });
+    const off = new OfflineAudioContext(2, Math.ceil(dur * sr), sr), r = createRig(off, { volume: opts.volume ?? 0.6, seed: opts.seed ?? state.seed, solo: opts.solo || null, tv: opts.tv });
     let i = records.findIndex((x) => x.t >= from), last = null; if (i < 0) i = records.length;
     const CH = 0.5, marks = [], faults = [];
     if (from > 0 && records[i]) r.sync(records[i].view, 0.02);
@@ -85,7 +86,7 @@ export function createAudio(state, bus) {
     pump(0);
     for (let T = CH; T < dur - 0.05; T += CH) off.suspend(T).then(() => { pump(T); off.resume(); }).catch((e) => faults.push(String(e)));
     const buf = await off.startRendering();
-    const chs = [buf.getChannelData(0), buf.getChannelData(1)], res = analyseScene(chs, sr, marks);
+    const chs = [buf.getChannelData(0), buf.getChannelData(1)].map((d) => (opts.speaker ? tvSpeaker(d, sr, opts.speaker) : d)), res = analyseScene(chs, sr, marks);
     if (!opts.perSec) delete res.perSec; else res.dbaPerSec = loudnessPerSecond(chs, sr);
     if (opts.env) {   // peak per window, in dB: the shape of a passage
       const w = Math.round(sr * (opts.envMs || 100) / 1000); res.env = [];

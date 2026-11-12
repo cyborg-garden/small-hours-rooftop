@@ -5,6 +5,7 @@ import { EV } from '../core/events.js';
 import { isWaterBeat } from '../core/beats.js';
 import { ANCHORS, JO_START, JO_SIT, HATCH, stairPoint } from '../core/layout.js';
 import { TEXT } from './script.js';
+import { TV } from '../core/surface.js';
 
 const POUR = 2.4;                                   // the pose the game is named for, held this long
 const LOOKS = ['marlow', 'city', 'chair', 'hatch', 'sensor'];
@@ -61,7 +62,7 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
   function tap(id) {
     const a = ANCHORS[id]; if (!a || !state.hot.includes(id)) return false;
     if (a.kind === 'choice' && state.beat === 'choice' && state.beatTime < CHOICE_ARM) return false;
-    ui.ripple(id); lastInput = state.time; showWater = 0;
+    ui.ripple(id); lastInput = state.time; showWater = 0; state.focusByStick = false;
     if (a.kind === 'look' || (id === 'sensor' && state.beat !== 'choice')) {
       state.counts.looks++; lastLook = state.beatTime; bus.emit(EV.LOOK, { id });
       // a look taken while she sits out the quiet on the kerb. The night after, by sensor, this is what brings her up.
@@ -332,9 +333,24 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
   }
   const after = (t, beat) => { if (!waiting) { waiting = true; at(t, () => enter(beat)); } };
 
+  // the console has one stick and one button. The stick walks the focus; left alone, the focus rests on the next
+  // thing worth using, so the button by itself plays the night. Never at the choice: that one has to be picked.
+  function restFocus() {
+    if (state.beat === 'choice') return;
+    if (state.focusByStick && state.hot.includes(state.focus)) return;   // the player put it here: it stays until they use it
+    state.focusByStick = false;
+    const list = state.hot.filter((id) => ANCHORS[id] && ANCHORS[id].kind !== 'look' && ANCHORS[id].kind !== 'alias' && ANCHORS[id].kind !== 'choice');
+    if (!list.length) { state.focus = null; return; }
+    // while she is on her way to something, the ring stays on it: a second press must never send her somewhere else
+    // (a pot she went to with an empty cup does not count: the water is next)
+    const going = J().target, held = list.includes(going) && (ANCHORS[going].kind !== 'pot' || J().cup > 0), h = held ? going : isWaterBeat(state.beat) ? hintTarget() : null;
+    state.focus = list.includes(h) ? h : list.includes(state.focus) ? state.focus : list[0];
+  }
+
   function update(dt) {
     cues.sort((a, b) => a.t - b.t);
     while (cues.length && cues[0].t <= state.beatTime) cues.shift().fn();
+    if (TV) restFocus();
     const b = state.beat, j = J(), done = !dryPots().length && free();
     if (isWaterBeat(b)) {
       // the camera leans in while she works the shelf and steps back when she goes for water

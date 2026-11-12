@@ -7,6 +7,7 @@ import { isWaterBeat } from '../core/beats.js';
 import { TEXT } from './script.js';
 import { drawTitle } from './title.js';
 import { paperSheet, washPlate, chevron } from './brush.js';
+import { TV } from '../core/surface.js';
 
 const el = (tag, cls, text, parent) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; if (parent) parent.appendChild(e); return e; };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -15,7 +16,7 @@ const holdFor = (text) => Math.max(3.2, text.length * 0.078);
 const LOCK = { marlow: 3.8, tam: 1.6, jo: 1.6, tag: 1.5, look: 1.2, time: 1.0 };
 
 export function createUI({ state, bus, render, audio, input, onBegin, onAgain, onTap }) {
-  const root = el('div'); root.id = 'sh-ui'; document.body.appendChild(root);
+  const root = el('div'); root.id = 'sh-ui'; if (TV) root.className = 'tv'; document.body.appendChild(root);
   const css = (k, v) => root.style.setProperty(k, v);
   css('--paper', paperSheet('#EFE6D2', 128, 3)); css('--wash', washPlate('#171925', 720, 132, 11, 0.82)); css('--chev', chevron(88, 5));
 
@@ -40,7 +41,7 @@ export function createUI({ state, bus, render, audio, input, onBegin, onAgain, o
   const head = el('div', 'head', '', title), lettering = el('canvas', 'lettering', '', head); lettering.setAttribute('role', 'img'); lettering.setAttribute('aria-label', TEXT.title);
   el('p', 'sub', TEXT.sub, head);
   const foot = el('div', 'foot', '', title);
-  const begin = el('button', 'begin ptag', '', foot); el('span', '', TEXT.begin, begin); el('p', 'small', TEXT.hint, foot);
+  const begin = el('button', 'begin ptag', '', foot); el('span', '', TEXT.begin, begin); el('p', 'small', TV ? TEXT.hintTv : TEXT.hint, foot);
   begin.addEventListener('click', () => onBegin());
 
   // end card: the picture stays, with what the record says and what it does not
@@ -81,7 +82,7 @@ export function createUI({ state, bus, render, audio, input, onBegin, onAgain, o
   let sized = '';
   function layout() {
     const w = window.innerWidth, h = window.innerHeight, key = w + 'x' + h; if (key === sized) return; sized = key;
-    const tall = h > w * 1.05; root.classList.toggle('tall', tall); root.classList.toggle('short', h < 480);
+    const tall = h > w * 1.05; root.classList.toggle('tall', tall); root.classList.toggle('short', h < 480 && !TV);
     const tw = tall ? Math.min(w * 0.86, 460) : Math.min(w * 0.74, 980, h * 2.6), th = tall ? tw * 0.6 : tw * 0.165;
     drawTitle(lettering, Math.round(tw), Math.round(th), tall ? ['SMALL', 'HOURS'] : ['SMALL HOURS'], { seed: 4 });
     const ew = tall ? Math.min(w * 0.62, 300) : Math.min(w * 0.34, 420);
