@@ -39,7 +39,8 @@ Node 22.
     npm ci
     node tools/build.mjs --site
 
-That writes `dist/small-hours.html`, the whole game in one file, and `site/`,
+That packs `assets/` into `src/assets/pack.gen.js` when the models have
+changed, then writes `dist/small-hours.html`, the whole game in one file, and `site/`,
 the same game as `index.html`, `game.js` and `style.css`. A push to `main`
 builds `site/` and publishes it as the `built` branch
 (`.github/workflows/build.yml`).
@@ -61,8 +62,15 @@ They run in headless Chromium with the sound muted. Nothing reaches a speaker.
 ## Credits
 
 Made at Cyborg Garden. Written, drawn and scored by Claude for Juniper
-Bevensee. Every picture and sound is made by the code in `src/` when the page
-loads. There are no image, sound or font files.
+Bevensee. The roof, the plants, the city, the light and every sound are made
+by the code in `src/` when the page loads.
+
+The two people are MakeHuman bodies (CC0), and they move with Quaternius's
+Universal Animation Library clips (CC0). The seat, the book and the bucket
+are from Poly Haven (CC0). The models are in `assets/` and are packed into
+the game by `tools/assets.mjs`, with every texture re-encoded so no image
+carries metadata. `CREDITS.md` lists each one, where it came from and what
+was changed.
 
 Drawn with [three.js](https://threejs.org), MIT licence. Its licence ships
 beside the game as `three.LICENSE.txt`.

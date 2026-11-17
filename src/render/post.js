@@ -36,6 +36,14 @@ void main(){
   // paint with no surface (water, mist) is never drawn round: one inkless tap silences the line here
   float ink = min(min(texture2D(tInk, vUv).a, min(nl.a, nr.a)), min(nd.a, nu.a));
   e *= smoothstep(.5, .95, ink);
+  // skin over its own skin (a bowed chin over the neck, seen from above) is a shadow, not an outline: drawn as a whole
+  // line it read as stubble on her face (round thirteen). Every tap skin (.97) -> a faint line; skin against cloth,
+  // hair or the night keeps its full line
+  float inkHi = max(max(texture2D(tInk, vUv).a, max(nl.a, nr.a)), max(nd.a, nu.a));
+  e *= mix(1., .55, step(.93, ink) * step(inkHi, .985));
+  // a hand (.95) is small: a full line round every finger closes it up into a clump of ink at phone size (round
+  // fourteen). Any tap on a hand -> the line at a little under half
+  e *= mix(1., .42, step(.94, ink) * step(ink, .96));
   gl_FragColor = vec4(e, sil, 1. - exp(-1. / (c * 30.)), ink);
 }`;
 

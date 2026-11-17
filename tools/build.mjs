@@ -6,11 +6,15 @@
 //                                  their own (index.html, game.js, style.css) plus meta.json and the three.js licence. This is what the
 //                                  arcade serves. A page with no inline script runs anywhere, Discord included.
 import { build } from 'esbuild';
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync, rmSync, statSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+// the real models in assets/ are packed into src/assets/pack.gen.js first, whenever they (or the packer) are newer
+{ const gen = join(root, 'src/assets/pack.gen.js'), srcs = [join(root, 'tools/assets.mjs'), ...readdirSync(join(root, 'assets')).map((f) => join(root, 'assets', f))];
+  if (!existsSync(gen) || srcs.some((f) => statSync(f).mtimeMs > statSync(gen).mtimeMs)) execFileSync(process.execPath, [join(root, 'tools/assets.mjs')], { stdio: 'inherit' }); }
 const out = await build({
   entryPoints: [join(root, 'src/main.js')], bundle: true, format: 'iife', minify: !process.argv.includes('--dev'),
   target: 'es2020', write: false, legalComments: 'none', logLevel: 'warning',
@@ -21,7 +25,7 @@ const problems = [];
 if (/<\/script/i.test(js)) problems.push('bundle contains a literal </script');
 // our own source is held to the delivery rules (three.js carries doc URLs in comments and strings; it is not scanned)
 const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)]);
-for (const f of walk(join(root, 'src'))) {
+for (const f of walk(join(root, 'src')).filter((f) => !f.endsWith('.gen.js'))) {
   const src = readFileSync(f, 'utf8');
   for (const bad of ['alert(', 'confirm(', 'prompt(', 'window.open', 'fetch(', 'XMLHttpRequest', 'http://', 'https://', 'Math.random(', '\u2014', '\u2013'])
     if (src.includes(bad)) problems.push(`${f.replace(root + '/', '')} contains ${JSON.stringify(bad)}`);
@@ -42,7 +46,7 @@ mkdirSync(dirname(outFile), { recursive: true });
 writeFileSync(outFile, html);
 const mb = Buffer.byteLength(html) / 1048576;
 console.log(`${outFile.replace(root + '/', '')}  ${mb.toFixed(2)} MB  (${js.split('\n').length} bundle lines)`);
-if (mb > 6) { console.error('BUILD FAILED: over 6 MB'); process.exit(1); }
+if (mb > 15.5) { console.error('BUILD FAILED: over 15.5 MB (the host limit is 16)'); process.exit(1); }
 
 const siteArg = process.argv.find((a) => a === '--site' || a.startsWith('--site='));
 if (siteArg) {

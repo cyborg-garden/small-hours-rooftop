@@ -54,7 +54,14 @@ export function createUI({ state, bus, render, audio, input, onBegin, onAgain, o
   // the two labels of the choice. They are the owner's words and the only words in the game that can be pressed.
   const choices = { sensor: el('button', 'choice ptag off', '', root), cup: el('button', 'choice ptag off', '', root) };
   el('span', '', TEXT.choiceSensor, choices.sensor); el('span', '', TEXT.choiceHand, choices.cup);
-  for (const id of ['sensor', 'cup']) { choices[id].addEventListener('click', () => onTap(id, null)); choices[id].disabled = true; }
+  // a label only chooses when it was pressed on purpose: the press began on that label after it could be pressed (a
+  // finger already coming down for something else when the labels appear picks nothing), or a key on a focused label
+  const pressed = { sensor: -1, cup: -1 };
+  for (const id of ['sensor', 'cup']) {
+    choices[id].addEventListener('pointerdown', () => { pressed[id] = state.beat === 'choice' && !choices[id].disabled ? state.time : -1; });
+    choices[id].addEventListener('click', (e) => { const byKey = e.detail === 0; if (byKey || (pressed[id] >= 0 && state.time - pressed[id] < 3)) onTap(id, null); pressed[id] = -1; });
+    choices[id].disabled = true;
+  }
   let choiceSize = null;
 
   const arrows = new Map();
@@ -100,15 +107,25 @@ export function createUI({ state, bus, render, audio, input, onBegin, onAgain, o
     if (!s.begun || s.beat === 'choice' || s.beat === 'end') return out;
     const pots = s.hot.filter((id) => ANCHORS[id] && ANCHORS[id].kind === 'pot');
     if (isWaterBeat(s.beat) || pots.length) {
-      if (s.jo.cup > 0) { if (pots.length && !pots.some(seenWell)) out.push(pots.find(seen) || pots[0]); }
+      // (round sixteen: not in a beat's first second, while the camera is still on its way from the last shot: the close
+      // phone talk shot has the pots at its edge, and an arrow popped up for a third of a second as the next night began)
+      if (s.jo.cup > 0) { if (pots.length && s.beatTime > 1 && !pots.some(seenWell)) out.push(pots.find(seen) || pots[0]); }
       else {
         const src = s.hot.includes('valve') && s.barrel.scoops <= 0 ? 'valve' : s.hot.includes('barrel') ? 'barrel' : null;
         // the tap is small and the barrel is dry: the one place a first night-three could strand someone. It is
         // always marked (at the edge when out of frame, standing over it when in frame) unless the camera is on it.
-        if (src && (!seen(src) || (src === 'valve' && s.camera.shot !== 'valve' && !(s.jo.target === 'valve')))) out.push(src);
+        // and standing by it with an empty cup, the chevron stands over it at once: a player stood at the barrel for
+        // fifteen seconds not knowing to tap it (tools/guide.mjs: barrel)
+        const near = src && Math.hypot(ANCHORS[src].pos.x - s.jo.pos.x, ANCHORS[src].pos.z - s.jo.pos.z) < 1.8 && s.jo.action === 'idle' && s.jo.target !== src;
+        if (src && (!seen(src) || (near && !s.__noHint) || (src === 'valve' && !/^valve/.test(s.camera.shot) && !(s.jo.target === 'valve')))) out.push(src);
       }
     }
-    if (s.hot.includes('tray') && !seen('tray')) out.push('tray');
+    // the idle hint: the same paper chevron stands over the thing it rang (a new dry pot after the hand-over, the barrel
+    // with an empty cup) until the next tap, or until it no longer applies (tools/guide.mjs: newpots, barrel)
+    const h = s.hint && s.hint.id, hp = h && ANCHORS[h] && ANCHORS[h].kind === 'pot' ? s.pots.find((q) => q.id === h) : null;
+    if (h && !s.__noHint && isWaterBeat(s.beat) && s.hot.includes(h) && s.jo.target !== h && !out.includes(h)
+      && (hp ? hp.present && !hp.watered : s.jo.cup <= 0)) out.push(h);
+    if (s.hot.includes('tray') && (!seen('tray') || s.trayHint)) out.push('tray');   // (left waiting, the chevron stands over the tray)
     return out;
   }
   function placeChoices() {
@@ -181,7 +198,7 @@ export function createUI({ state, bus, render, audio, input, onBegin, onAgain, o
 
       const choosing = state.beat === 'choice' && !state.ending;
       for (const id of ['sensor', 'cup']) {
-        const c = choices[id]; c.classList.toggle('on', choosing); c.classList.toggle('off', !choosing); c.disabled = !choosing;
+        const c = choices[id]; c.classList.toggle('on', choosing); c.classList.toggle('off', !choosing); c.disabled = !choosing || state.beatTime < 1.6;   // a moment to read both before either can be pressed
         c.classList.toggle('focus', choosing && input.keyboard && state.focus === id);
       }
       fx.classList.toggle('choosing', choosing);

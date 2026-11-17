@@ -8,6 +8,7 @@ import { POST, TOP_U } from './shelf.js';
 
 export const SOIL_Y = 0.172;
 const leafCache = new Map();
+const PUMPKIN_DRY = mix('amber', 'giftLeafDry', 0.45);
 const leaf = (len, wid, kind, fold = 0.35, curl = 0.3) => {
   const k = `${len.toFixed(3)}|${wid.toFixed(3)}|${kind}|${fold}|${curl}`;
   if (!leafCache.has(k)) leafCache.set(k, leafGeo(len, wid, fold, curl, kind, 3));
@@ -22,7 +23,7 @@ const EAST_AZ = Math.atan2(0.56, -0.83), LS = 1.5;
 class PB {
   constructor(b, L, fresh, pot) { this.b = b; this.L = L; this.pot = pot; this.n = 0; this.fresh = col(fresh); this.dry = mix('giftLeafDry', 'tag', 0.22);
     this.stemC = mix(mix('stem', 'giftLeafDry', 0.55), 'stem', L); }
-  leafC(tint) { const h = hash(this.pot, this.n++), c = this.dry.clone().lerp(tint ? col(tint) : this.fresh, 0.06 + 0.94 * this.L); return c.multiplyScalar(0.9 + 0.2 * h); }
+  leafC(tint, dry) { const h = hash(this.pot, this.n++), c = (dry || this.dry).clone().lerp(tint ? col(tint) : this.fresh, 0.06 + 0.94 * this.L); return c.multiplyScalar(0.9 + 0.2 * h); }
   // a stem from `base`: azimuth az, lean (radians from upright at the tip when standing), droop (extra when dry)
   stem(base, az, lean, len, droop = 1.8, r0 = 0.009, r1 = 0.005, n = 5, fixed = false) {
     const pts = [base.clone()], L = fixed ? 1 : this.L; let p = base.clone();
@@ -36,7 +37,7 @@ class PB {
   leaf(at, az, elev, len, wid, kind = 0, o = {}) {
     const e = lerp(o.hang ?? -1.4, elev, this.L) + (hash(this.pot, this.n) - 0.5) * 0.2;
     const k = o.exact ? 1 : LS;
-    this.b.add(leaf(len * k, wid * k * 1.1, kind, o.fold ?? 0.3, o.curl ?? 0.3), this.leafC(o.tint), xf(at.x, at.y, at.z, -e, az, 0));
+    this.b.add(leaf(len * k, wid * k * 1.1, kind, o.fold ?? 0.3, o.curl ?? 0.3), this.leafC(o.tint, o.dry), xf(at.x, at.y, at.z, -e, az, 0));
   }
   // three (or n) leaflets fanned from one point
   fan(at, az, elev, len, wid, kind, n = 3, spread = 0.75, o = {}) { for (let j = 0; j < n; j++) { const d = j - (n - 1) / 2; this.leaf(at, az + d * spread, elev - Math.abs(d) * 0.12, len * (d ? 0.82 : 1), wid * (d ? 0.82 : 1), kind, o); } }
@@ -86,7 +87,9 @@ const SPECIES = [
     const st = pb.stem(O(), 3.0, 0.2, G3(g, 0.06, 0.09, 0.12), 0.9, 0.013, 0.011, 3);
     for (const s of [0, 1]) pb.leaf(st.tip, 1.2 + s * Math.PI, 0.3, 0.085, 0.06, 2, { fold: 0.2 });
     const n = Math.round(G3(g, 0, 2, 5)), ll = G3(g, 0.1, 0.13, 0.2);
-    for (let i = 0; i < n; i++) { const a = 0.4 + i * 2.2, pet = pb.stem(st.tip, a, G3(g, 0.7, 0.8, 1.05), ll * G3(g, 0.6, 0.7, 1.0), 1.3, 0.008, 0.006, 4); pb.leaf(pet.tip, a, 0.12, ll, ll * 1.05, 3, { fold: 0.22, curl: 0.5 }); }
+    for (let i = 0; i < n; i++) { const a = 0.4 + i * 2.2, pet = pb.stem(st.tip, a, G3(g, 0.7, 0.8, 1.05), ll * G3(g, 0.6, 0.7, 1.0), 1.3, 0.008, 0.006, 4); pb.leaf(pet.tip, a, 0.12, ll, ll * 1.05, 3, { fold: 0.06, curl: 0.35, dry: PUMPKIN_DRY }); }   // nearly flat, so a leaf is one colour and not two halves; thirsty, it goes straw yellow, not grey
+    // and once it is plain what it is: one small pumpkin, sitting on the soil
+    if (g > 1.5) pb.b.add(lathe([[0, 0], [0.03, 0.004], [0.047, 0.022], [0.05, 0.04], [0.042, 0.06], [0.02, 0.072], [0, 0.068]], 10), (p) => mix('amber', 'pot', 0.45 + 0.25 * Math.abs(Math.sin(Math.atan2(p.z, p.x) * 4))), xf(0.062, SOIL_Y - 0.004, 0.05, 0, 0.4, 0));
   } },
   // 5 bean: for the stairwell rail. It leaves the pot on night two.
   { fresh: col('giftLeaf'), grow(pb, g, vine) {
@@ -179,6 +182,9 @@ export function buildPots(ctx, state) {
     // where a pot is shown when it is not on its shelf (in the tray, or being set out). null = on the shelf.
     setAt(i, v) { views[i].at = v; },
     soil(i, out) { const p = state.pots[i].pos; return out.set(p.x, p.y - 0.135 + SOIL_Y, p.z); },
+    // the height of the top of pot i's plant as drawn now (world y), so the cup can be held above its leaves
+    top(i) { const m = views[i].mesh, g = m.geometry; if (!g.boundingBox || g.userData.bbFor !== g.attributes.position.version) { g.computeBoundingBox(); g.userData.bbFor = g.attributes.position.version; }
+      m.updateMatrixWorld(true); return g.boundingBox.max.y * m.matrixWorld.elements[5] + m.matrixWorld.elements[13]; },
     // the leaf of pot i nearest a world point (a green vertex well above the soil and the tag), in world space
     leafNear(i, from, out) {
       const m = views[i].mesh, g = m.geometry, P = g.attributes.position, C = g.attributes.color; m.updateMatrixWorld(true);

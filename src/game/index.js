@@ -14,7 +14,7 @@ const TITLE_DIM = 0.7;                       // how much of the roof shows behin
 const FADE_UP = 2.5, FADE_DOWN = 1.8;        // seconds for a whole fade. Slow on purpose: nothing on this roof is sudden.
 
 export function createGame({ canvas, state, bus, render, world, audio }) {
-  let fade = TITLE_DIM, fadeGoal = TITLE_DIM, restarting = false, opening = false, ui = null, arc = null;
+  let fade = TITLE_DIM, fadeGoal = TITLE_DIM, fadeSecs = 0, restarting = false, opening = false, ui = null, arc = null;
   const say = (kind, text, hold) => bus.emit(EV.TEXT, { kind, text, hold });
   const jo = createJo({ state, bus }), tam = createTam({ state, bus });
   const tap = (id) => { const a = ANCHORS[id]; if (a && a.kind === 'alias') id = a.to; return state.begun && arc ? arc.tap(id) : false; };
@@ -28,16 +28,16 @@ export function createGame({ canvas, state, bus, render, world, audio }) {
   function reset(seed = state.seed) {
     const keep = { viewport: state.viewport, quality: state.quality, qualityLocked: state.qualityLocked, perf: state.perf, muted: state.muted, volume: state.volume, reducedMotion: state.reducedMotion, auto: state.auto, paused: state.paused };
     Object.assign(state, createState(seed), keep);
-    jo.reset(); tam.reset(); arc.reset(); restarting = false; opening = false; fade = fadeGoal = TITLE_DIM;
+    jo.reset(); tam.reset(); arc.reset(); fadeSecs = 0; restarting = false; opening = false; fade = fadeGoal = TITLE_DIM;
     ui.showEnd(false); ui.clearLine(); ui.showTitle(true); render.snap();
   }
   // Begin again: the roof goes dark first, so the night can be put back the way it was without anyone seeing
-  function again() { if (restarting) return; restarting = true; ui.showEnd(false); state.hot = []; fadeGoal = 0; }
+  function again() { if (restarting) return; restarting = true; ui.showEnd(false); state.hot = []; fadeGoal = 0; fadeSecs = 0; }
 
   // a tap on nothing still leaves a small ring where the finger landed: the roof heard it, there was nothing there
-  const input = createInput({ canvas, state, render, world, onTap: tap, onMiss: (x, y) => { bus.emit(EV.TAP_MISS, { x, y }); if (ui && state.begun) ui.ripple(null, { x, y }); }, onBegin: begin, onAgain: () => again(), onKey: (k) => { if (k === 'mute') ui.toggleMute(); } });
+  const input = createInput({ canvas, state, render, world, onTap: tap, onMiss: (x, y, spent) => { bus.emit(EV.TAP_MISS, { x, y }); if (ui && state.begun) ui.ripple(null, { x, y }); if (spent && state.begun && arc) arc.spent(spent); }, onBegin: begin, onAgain: () => again(), onKey: (k) => { if (k === 'mute') ui.toggleMute(); } });
   ui = createUI({ state, bus, render, audio, input, onBegin: begin, onTap: tap, onAgain: again });
-  arc = createArc({ state, bus, render, ui, jo, tam, say, fade: (g) => { fadeGoal = g; } });
+  arc = createArc({ state, bus, render, ui, jo, tam, say, fade: (g, secs = 0) => { fadeGoal = g; fadeSecs = secs; } });   // secs: a quicker dip than a night's, for a cut inside a scene
 
   return {
     begin, reset, tap, pick: input.pick, where: input.where, rects: () => ui.rects(),
@@ -49,7 +49,7 @@ export function createGame({ canvas, state, bus, render, world, audio }) {
         state.time += dt; state.beatTime += dt;
         jo.update(dt); tam.update(dt); arc.update(dt);
       }
-      fade += Math.max(-dt / FADE_DOWN, Math.min(dt / FADE_UP, fadeGoal - fade));
+      fade += Math.max(-dt / (fadeSecs || FADE_DOWN), Math.min(dt / (fadeSecs || FADE_UP), fadeGoal - fade));
       if (restarting && fade <= 0.001) { reset(); fade = 0; begin(); }
       if (opening && fade <= 0.001) { opening = false; arc.enter('n1_open'); }
       state.fade = fade;                     // 0 black .. 1 clear. Cuts and re-staging only ever happen at 0.

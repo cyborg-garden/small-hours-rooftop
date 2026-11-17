@@ -3,3 +3,4 @@ shots/
 dist/
 site/
 .DS_Store
+src/assets/pack.gen.js

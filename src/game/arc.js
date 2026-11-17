@@ -3,37 +3,46 @@
 // step it and get the same game. This file decides; jo.js and tam.js move people; ui.js shows words.
 import { EV } from '../core/events.js';
 import { isWaterBeat } from '../core/beats.js';
-import { ANCHORS, JO_START, JO_SIT, HATCH, stairPoint } from '../core/layout.js';
+import { ANCHORS, JO_START, JO_SIT, HATCH, TAM_ROOF, stairPoint } from '../core/layout.js';
 import { TEXT } from './script.js';
 import { TV } from '../core/surface.js';
 
-const POUR = 2.4;                                   // the pose the game is named for, held this long
+const POUR = 1.8;                                   // the pose the game is named for, held this long
 const LOOKS = ['marlow', 'city', 'chair', 'hatch', 'sensor'];
-const SUM_AT = 2.0, SUM_HOLD = 5.6;                   // first light: when Marlow's 4:31 summary is said, and how long it stays
-const CHOICE_ARM = 1.2;                             // the choice hears nothing until its two labels have faded in: a tap left over from the watering cannot choose
-const TO_HATCH = -1.2, TO_SHELF = 0.3;              // headings: toward the stair head, toward the pots
-// where Jo stands to take the tray (and, the night after, to reach the bucket). The frozen tray stand is inside
-// the shelf's left end; this one is clear of it, in the gap by the stair head (world's suggestion).
-const HANDOFF = { x: -2.4, z: 4.1, heading: -Math.PI / 2 };   // a step back from the lip of the stairwell, facing the neighbour on the stairs: the tray hangs in the gap
-const BUCKET = { x: -2.52, z: 3.95, heading: 0.0 };      // the night after: where she crouches to fill from the bucket
+const CHOICE_ARM = 1.6;                             // the choice hears nothing until its labels can be pressed (ui.js): a press left over from the watering, or the console's button, cannot choose
+const TO_HATCH = -0.9, TO_SHELF = 0.3;              // headings: toward the stair head, toward the pots
+// where Jo stands to take the tray: on the open deck behind the shelf, facing the neighbour, the tray's width between
+// them. Nothing is handed over a stairwell or past a post any more.
+const HANDOFF = { x: TAM_ROOF.x + 1.05, z: TAM_ROOF.z, heading: -Math.PI / 2 };
+// where she carries the full tray to before the picture dips: away from the shelf and back across the deck, so
+// the shelf's rail post is never between the camera and the pots, lit or fading (tools/pose.mjs: carry)
+const CARRY_TO = { x: HANDOFF.x + 0.4, z: HANDOFF.z - 0.6 };
+const OPEN = -Math.PI / 2 + 0.85;   // talking, she stands a little open to the picture, so her face is seen under the hat
+const MEET = { x: HANDOFF.x + 0.3, z: HANDOFF.z, heading: OPEN };   // where she waits for them, a step further back
+const BUCKET = { x: -1.76, z: 2.18, heading: 0.12 };     // the night after: where she kneels to fill from the bucket, facing it, on its far side from the shelf; seen side on
 // the night after, by sensor: the neighbour's folding chair has been carried over from the barrel to the shelf's end,
 // into the stair light, turned a little toward the pots. She sits in it. (World moves the chair to state.chairAt.)
-export const CHAIR_READ = { x: -2.0, z: 3.06, heading: 0.2 };
+export const CHAIR_READ = { x: -1.82, z: 2.82, heading: -1.3 };   // (round ten: a step out from the shelf's end, clear of its near pot and the feed-line hoop: tools/scene.mjs readsit) turned to face the stair light (and the picture): the shelf is at her left hand
 const CHAIR_FRONT = { x: CHAIR_READ.x + Math.sin(CHAIR_READ.heading) * 0.36, z: CHAIR_READ.z + Math.cos(CHAIR_READ.heading) * 0.36, heading: CHAIR_READ.heading };
 // how much the cup holds: three on the first night, while the player learns the barrel; after that she brings the
 // bigger pour, so a night of twelve pots is two trips, not four. Not every pot every time still holds.
 const CAP = [3, 3, 6, 5, 3];   // night three: five, so a barrel cup and a tap cup still leave a pot or two for tomorrow
 export const cupCap = (night) => CAP[Math.max(0, Math.min(4, night | 0))];
-const HINT_AFTER = 8.5, HINT_EVERY = 3.2;          // seconds with no input before a quiet ring says what can be tapped
+const HINT_AFTER = 8.5, HINT_EMPTY = 4.0, HINT_EVERY = 3.2, HINT_NEW = 2.5;
+// round eleven: nobody is left standing. With an empty cup and nothing useful done for this long she goes for water
+// herself; with water in the cup, she pours the nearest dry pot herself (tools/guide.mjs: stall)
+const SELF_EMPTY = 6, SELF_FULL = 8.5;   // (round thirteen: 7 and 12 left a still player 13.5 s with nothing moving: tools/guide.mjs stall, cap 12)   // (HINT_NEW: once the neighbour has gone, the new pots are pointed at almost at once)
+   // (with an empty cup the hint comes sooner: nobody should sit wondering where the water is)          // seconds with no input before a quiet ring says what can be tapped
 const LANDING = { x: stairPoint(1).x, z: stairPoint(1).z };
 // the night after, by hand: back at the stair head, close to the neighbour, for the cup held out between them
-const OFFER = { x: -2.55, z: 4.12, heading: -Math.PI / 2 };
+const OFFER = { x: -1.5, z: 2.2, heading: -0.75 };
+const OFFER_WAY = { x: -0.95, z: 2.35, heading: -2.4 };   // the way she comes to it from the shelf: out on the open deck first (tools/scene.mjs hatface)   // (on the bucket's far side from the shelf: from the open side of the roof the two of them stand apart in the picture, the cup between them and the bucket at their feet)
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
   let cues = [], queued = null, waiting = false, leave = null, lastLook = -99, opts = { ending: 'hand' }, epi = null;
   let showValve = 0, trayWait = 0, chain = null, firstPour = false, lastUse = 0, trayHint = 0, dawnWait = 0;   // the camera on the tap; the neighbour's patience; the next pot along; the night's first pour
-  let lastInput = 0, lastHint = -99, showWater = 0, waterAt = null, triedPot = false;   // the idle hint; the empty cup's glance to the water
+  let lastInput = 0, lastHint = -99, triedPot = false;   // the idle hint
   const J = () => state.jo, T = () => state.tam;
   const at = (t, fn) => cues.push({ t: state.beatTime + t, fn });
   const marlow = (key, hold) => { state.marlow.line = key; bus.emit(EV.MARLOW_LINE, { key }); say('marlow', TEXT.marlow[key], hold); };
@@ -48,8 +57,12 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
   // the idle hint: the thing to tap next. Until a pot has been tried, the nearest dry pot (so a first player learns the
   // pots answer); after that, a dry pot while the cup has water and the water while it has none
   function hintTarget() {
-    const j = J(), dry = dryPots().filter((p) => state.hot.includes(p.id));
-    if (j.cup > 0 || (!triedPot && dry.length)) {
+    const j = J(), dry0 = dryPots().filter((p) => state.hot.includes(p.id)), src = waterSource();
+    // after the hand-over, the six new pots are the news: they are pointed at before the old ones
+    const fresh = state.beat === 'n2_more' ? dry0.filter((p) => p.tray) : [], dry = fresh.length ? fresh : dry0;
+    // standing by the water with an empty cup, the water is what is pointed at, first night or not
+    const byWater = src && ANCHORS[src] && Math.hypot(ANCHORS[src].pos.x - j.pos.x, ANCHORS[src].pos.z - j.pos.z) < 1.8;
+    if (j.cup > 0 || (!triedPot && dry.length && !byWater)) {
       if (!dry.length) return null;
       dry.sort((p, q) => Math.hypot(p.pos.x - j.pos.x, p.pos.z - j.pos.z) - Math.hypot(q.pos.x - j.pos.x, q.pos.z - j.pos.z));
       return dry[0].id;
@@ -62,7 +75,9 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
   function tap(id) {
     const a = ANCHORS[id]; if (!a || !state.hot.includes(id)) return false;
     if (a.kind === 'choice' && state.beat === 'choice' && state.beatTime < CHOICE_ARM) return false;
-    ui.ripple(id); lastInput = state.time; showWater = 0; state.focusByStick = false;
+    // (no chalk ring on the tray: drawn in screen space it sat on the tray as it moved, a faint circle over the pots.
+    // state.__trayRing puts it back, for tools/scene.mjs: ring)
+    if (id !== 'tray' || state.__trayRing) ui.ripple(id); lastInput = state.time; state.hint = null; state.focusByStick = false;
     if (a.kind === 'look' || (id === 'sensor' && state.beat !== 'choice')) {
       state.counts.looks++; lastLook = state.beatTime; bus.emit(EV.LOOK, { id });
       // a look taken while she sits out the quiet on the kerb. The night after, by sensor, this is what brings her up.
@@ -70,22 +85,25 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
       say('look', id === 'city' && state.night >= 2 ? TEXT.look.cityLate : id === 'chair' && state.night >= 3 ? TEXT.look.chairJar : TEXT.look[id]);
       return true;
     }
-    if (a.kind === 'choice') return choose(id);   // (never reached before CHOICE_ARM: see the top of tap)
+    if (a.kind === 'choice') return choose(id);
     if (jo.busy()) { queued = id; return true; }          // exactly one tap waits its turn
     const j = J();
     if (a.kind === 'pot') triedPot = true;
     if ((id === 'barrel' || id === 'valve') && j.cup >= (id === 'valve' ? Math.min(3, cupCap(state.night)) : cupCap(state.night))) { say('jo', TEXT.jo.full, 2.2); return true; }
     queued = null; bus.emit(EV.TAP, { id }); j.target = id; lastUse = state.time;
-    if (id === 'barrel' || id === 'valve') fill(id, a); else if (a.kind === 'pot') pour(id, a); else if (id === 'tray') handoff(a);
+    if (id === 'barrel' || id === 'valve') fill(id, a); else if (a.kind === 'pot') pour(id, a); else if (id === 'tray') handoff();
     return true;
   }
-  function fill(id, a) {
-    jo.walkTo(a.stand, () => act('scoop', id === 'valve' ? 2.6 : 1.7, null, () => {
+  function fill(id, a, shown) {
+    lastUse = state.time;   // (any water moving counts as the player's night going on: tools/guide.mjs stall)
+    // (when she has gone for water by herself, a ring lands on it as she gets there: next time the player knows what to tap)
+    jo.walkTo(a.stand, () => { if (shown) ui.ripple(id); act('scoop', id === 'valve' ? 2.6 : 2.1, null, () => {
       const j = J(), b = state.barrel;
       if (id === 'barrel' && b.scoops <= 0) {             // night three: the cup scrapes the bottom
         bus.emit(EV.JO_SCOOP, { source: 'dry' }); say('jo', TEXT.jo.dry); state.valve.found = true; refreshHot();
+        j.skyUntil = state.time + 2.8;   // (and she looks up at the sky that has not rained: her face comes out from under the brim)
         // the picture goes to the brass tap and she turns to look at it while her line plays: no hunting
-        showValve = 8.5;
+        showValve = 7.0;   // (round thirteen: 8.5, and with nothing touched the night stood 13 s before water moved: tools/guide.mjs stall)
         at(2.4, () => jo.whenFree(() => jo.turnTo(headingTo(ANCHORS.valve.pos))));
         at(4.6, () => { if (!state.valve.fills && state.beat === 'n3_water') say('jo', TEXT.jo.valve); });
         return;
@@ -96,37 +114,40 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
         b.level = Math.max(state.night >= 3 ? 0.03 : 0.08, b.level - 0.13);
       } else {
         const n = Math.min(3, ++state.valve.fills); state.marlow.leak = true;
-        at(1.9, () => { bus.emit(EV.MARLOW_LEAK, { count: n }); marlow('leak' + n); });
+        at(1.9, () => { if (n === 3 && state.valve.said3) return; if (n === 3) state.valve.said3 = true; bus.emit(EV.MARLOW_LEAK, { count: n }); marlow('leak' + n); });
+        // (the second cup from the tap brings the last line too, a little later: two trips hear all three)
+        if (n === 2) at(5.6, () => { if ((state.beat === 'n3_water' || state.beat === 'firstlight') && !state.valve.said3) { state.valve.said3 = true; bus.emit(EV.MARLOW_LEAK, { count: 3 }); marlow('leak3'); } });
       }
       // Marlow's tap runs slow: three at most, as it always did, so a player who keeps going hears all three of its leak lines
       j.cup = id === 'valve' ? Math.min(3, cupCap(state.night)) : cupCap(state.night); state.counts.scoops++; bus.emit(EV.JO_SCOOP, { source: id }); refreshHot();
-    }));
+    }); });
   }
   // she stands to the RIGHT of a pot and a little back, facing it, so the cup is in her right hand on the near side
   // of her body and the water falls in the open, beside her, not across her face
   // (the two pots nearest the shelf's end post are poured from its other side, so her arm never crosses the post)
-  const potStand = (a) => { const x = a.pos.x + (a.pos.x > -0.85 ? -0.62 : 0.62), z = 3.3; return { x, z, heading: Math.atan2(a.pos.x - x, a.pos.z - z) }; };
+  // (half a metre along from it: near enough that she pours standing upright, not leaning out over the row)
+  const potStand = (a) => { const x = a.pos.x + (a.pos.x > -0.85 ? -0.5 : 0.5), z = 3.3; return { x, z, heading: Math.atan2(a.pos.x - x, a.pos.z - z) }; };
   // the next dry pot along the shelf from this one (nearest first), for the cup to carry on to
   const nextAlong = (id) => { const a = ANCHORS[id], c = dryPots().filter((p) => p.id !== id && (state.hot.includes(p.id) || epi));
     c.sort((p, q) => Math.hypot(p.pos.x - a.pos.x, (p.pos.z - a.pos.z) * 2) - Math.hypot(q.pos.x - a.pos.x, (q.pos.z - a.pos.z) * 2)); return c.length ? c[0].id : null; };
   function pour(id, a) {
+    lastUse = state.time;
     const p = state.pots[a.index];
     jo.walkTo(potStand(a), () => {
       const j = J();
       if (p.watered) return next();
       if (j.cup <= 0) {
         bus.emit(EV.JO_POUR_EMPTY, { pot: id }); say('jo', TEXT.jo.empty, 2.2);
-        // then she looks round at the water, and the picture goes with her for a moment: the barrel (or, once it is
-        // dry, the brass tap) is the thing on the screen, ringed, so nobody is left hunting for an arrow
-        return act('pourEmpty', 1.0, () => { if (!isWaterBeat(state.beat)) return; const w = waterSource(); if (!w) return;
-          waterAt = w; showWater = 3.4; jo.turnTo(headingTo(ANCHORS[w].stand || ANCHORS[w].pos));
-          at(1.0, () => { if (showWater > 0) { ui.ripple(w); ui.nudge(w); } }); at(2.2, () => { if (showWater > 0) ui.ripple(w); }); });
+        // she tips it, sees it is empty, and goes for water herself: to the barrel, or the brass tap once the barrel is
+        // dry. Nobody is left standing with an empty cup, hunting for an arrow.
+        return act('pourEmpty', 1.0, () => { if (!isWaterBeat(state.beat) || queued) return; const w = waterSource(); if (!w) return;
+          J().target = w; lastUse = state.time; fill(w, ANCHORS[w], true); return 'hold'; });
       }
       bus.emit(EV.JO_POUR_START, { pot: id, index: a.index, dur: POUR });
       firstPour = state.nightPours === 0;
       act('pour', POUR, () => {
         bus.emit(EV.JO_POUR_END, { pot: id, index: a.index }); firstPour = false;
-        // from night two the cup goes on along the row by itself while it has water: the ritual, with fewer taps
+        // the cup goes on along the row by itself while it has water (from the first night): one tap, two or three pots
         if (chain && !queued && (isWaterBeat(state.beat) || epi) && J().cup > 0) { const c = chain; chain = null; J().target = c; pour(c, ANCHORS[c]); return 'hold'; }
         chain = null;
       }, () => {
@@ -137,44 +158,47 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
         if (line) say(n === 1 || (p.tray === 1 && n === 2) ? 'tag' : 'look', line);
         if (epi) epi.poured = (epi.poured || 0) + 1;
         // (on night two the chain stops at the third pot: that is when the footsteps come, and the rest is the cup's)
-        chain = state.night >= 2 && j.cup > 0 && !(state.beat === 'n2_water' && state.nightPours >= 3) ? nextAlong(id) : null;
+        chain = j.cup > 0 && !(state.beat === 'n2_water' && state.nightPours >= 3) ? nextAlong(id) : null;
         refreshHot();
       }, 0.5);
     });
   }
-  // the tray changes hands. Four hands on it for a moment, then two.
-  function handoff(a) {
+  // the tray changes hands, out on the roof. Four hands on it for a moment, then two: hers, open, under it. She turns
+  // and carries it along the shelf, and the picture dips to dark for the minutes it takes to set six pots out. When it
+  // comes back they are on the lower tier, and the empty tray is back in the neighbour's hands.
+  function handoff() {
     state.hot = []; state.focus = null;
     jo.walkTo(HANDOFF, () => {
-      J().cupHeld = false; tam.look('tray');
-      act('take', 2.0, () => {
-        const j = J(); j.carrying = true; tam.look('jo'); state.camera.shot = 'talk';
-        // the pots go out onto the lower tier, and the empty tray goes back to whoever brought it: it leaves with them,
-        // so nothing is left leaning in among the pots
-        jo.walkTo({ x: -1.2, z: 3.15, heading: 0.1 }, () => act('place', 2.0, () => {
-          // a step back from the shelf first, so the empty tray never swings through the plant tops
-          jo.walkTo({ x: -1.35, z: 2.8 }, () => jo.walkTo(HANDOFF, () => { tam.look('jo'); act('give', 1.8, () => { const k = J(); k.carrying = false; k.cupHeld = true; afterHandoff(); },
-            () => { J().carrying = false; T().hasTray = true; bus.emit(EV.TAM_HANDOFF, { back: true }); }, 0.6); }, 'carry'), 'carry');
-          return 'hold';
-        }, () => {
+      tam.look('tray');
+      // first the cup goes on her belt, hooked by its handle behind her right hip: both hands are about to be on the tray
+      act('hang', 1.0, () => { act('take', 2.6, () => {
+        tam.look('jo');
+        // she carries the full tray off toward the shelf, all six pots on it in plain sight, and only then does the
+        // picture dip. Nothing leaves the tray while it can be seen (tools/pose.mjs: potcount)
+        jo.walkTo(CARRY_TO, null, 'carry');
+        at(1.0, () => fade(0, 0.9));
+        at(2.25, () => {
           state.pots.forEach((p) => { if (p.tray === 1) p.present = true; }); bus.emit(EV.TRAY_SET, {});
-        }, 0.42), 'carry');
-      }, () => { T().hasTray = false; tam.setStage('top'); bus.emit(EV.TAM_HANDOFF, {}); }, 0.55);
+          // the tray stays on the roof with the pots (it is under the shelf now): the neighbour goes home with empty
+          // hands, so nothing they carry can catch the stair rail or the door frame on the way down
+          T().hasTray = false;
+          jo.place({ present: true, action: 'idle', carrying: false, cupHeld: true, target: null, heading: OPEN, pos: HANDOFF });
+          cut('meet'); fade(1, 1.3); afterHandoff();
+        });
+        return 'hold';
+      }, () => { T().hasTray = false; J().carrying = true; tam.setStage('top'); bus.emit(EV.TAM_HANDOFF, {}); }, 0.55); return 'hold'; }, () => { J().cupHeld = false; }, 0.6);
     });
   }
   function talk(lines, t0, done) {
     let t = t0;
-    for (const [who, text, hold, look] of lines) { at(t, () => { say(who, text, hold - 0.25); if (look) tam.look(look); }); t += hold; }
+    for (const [who, text, hold0, look] of lines) { const hold = hold0 * 0.86; at(t, () => { say(who, text, hold - 0.25); state.speaking = { who, until: state.time + hold - 0.2 }; if (look) tam.look(look); if (look === 'tray' && state.beat === 'turn') state.camera.shot = 'take'; }); t += hold; }   // (the camera is up over the tray before it turns to her)
     at(t, done);
   }
   function afterHandoff() {
-    state.camera.shot = 'talk';
-    at(0.5, () => jo.whenFree(() => jo.turnTo(TO_HATCH)));
-    talk(TEXT.turnB, 1.0, () => {
+    talk(TEXT.turnB, 1.6, () => {
       // the pots are hers again the moment the neighbour turns to go: no dead air with a full cup and nine dry pots
       tam.leave(); enter('n2_more'); ui.clearLine();
       at(1.4, () => jo.whenFree(() => jo.turnTo(TO_SHELF)));
-      at(7.4, () => bus.emit(EV.DOOR_CLOSE, {}));
     });
   }
   // the choice. The sensor goes from its crate into the bean pot and wakes up green. Or the cup is tipped over
@@ -226,7 +250,7 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
     state.pots.forEach((p) => { p.watered = false; p.wet = 0; p.lift = Math.min(p.lift, 0.15); p.growth = Math.max(0, p.tray ? n - 2 : n - 1); });
     Object.assign(state.barrel, [{ scoops: 3, level: 0.8 }, { scoops: 4, level: 0.56 }, { scoops: 1, level: 0.14 }][n - 1]);
     // she is already awake, at the foot of the stairs, when the night comes up. Nobody appears out of nothing.
-    cut(n === 1 ? 'beds' : n === 2 ? 'hatch' : 'barrel'); jo.place({ present: true, action: 'idle', cup: 0, cupHeld: true, carrying: false, noCup: false, book: false, page: 0, hatOff: false, hatAt: null, target: null, heading: Math.PI / 2, y: stairPoint(1).y, pos: LANDING });
+    cut(n === 1 ? 'beds' : n === 2 ? 'hatch' : 'barrel'); jo.place({ present: true, action: 'idle', cup: 0, cupHeld: true, carrying: false, cupGiven: 0, offer: 0, noCup: false, book: false, page: 0, hatOff: false, hatAt: null, target: null, heading: Math.PI / 2, y: stairPoint(1).y, pos: LANDING });
     fade(1); ui.clearLine(); ritual(false);
     if (n > 1) at(0.1, () => say('time', TEXT['night' + n], 3.4));   // the title is on the dark before the roof comes up
     at(n === 1 ? 3.6 : 5.0, () => marlow('open'));
@@ -240,11 +264,11 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
     at(n === 1 ? 3.6 : 3.2, () => jo.climb(1, () => { if (state.camera.shot === 'hatch') state.camera.shot = 'shelf'; jo.walkTo(JO_START); }));
     if (n === 1) at(13.1, () => say('jo', TEXT.jo.open));
     if (n === 3) at(10.6, () => say('look', TEXT.look.chairJar));
-    at(n === 1 ? 14.9 : 12.5, () => enter(then));
+    at(n === 1 ? 14.9 : 11.0, () => enter(then));
   }
   // the end of a night: Marlow's line, she goes down, the roof fades
   function closeNight(then) {
-    return () => { jo.whenFree(() => jo.descend()); at(7.9, () => fade(0)); at(9.8, () => enter(then)); };
+    return () => { jo.whenFree(() => jo.descend()); at(6.6, () => fade(0)); at(8.4, () => enter(then)); };
   }
   const ENTER = {
     n1_open() { openNight(1, 'n1_water'); },
@@ -260,21 +284,22 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
       // footsteps below, long before Jo could see anyone. The player sees them first, in the cut section.
       tam.comeUp({ hasTray: true, bucket: false }); state.camera.shot = 'hatch'; state.hot = []; state.focus = null;
       at(2.4, () => jo.whenFree(() => jo.turnTo(TO_HATCH)));
-      at(6.4, () => jo.whenFree(() => jo.walkTo({ x: -2.5, z: 3.62, heading: -1.25 })));
+      at(6.4, () => jo.whenFree(() => jo.walkTo(MEET)));
     },
     n2_more() {},
     n2_quiet() {
       // the same minute on the kerb as the first night, so that by the night after it is hers
       state.camera.shot = 'wide'; jo.whenFree(() => jo.walkTo(JO_SIT, () => jo.sit()));
       at(1.8, () => { bus.emit(EV.MARLOW_TICK, {}); marlow('quiet2'); });
-      at(9.0, closeNight('n3_open'));
+      at(6.0, closeNight('n3_open'));
     },
     n3_open() { openNight(3, 'n3_water'); },
     n3_water() {},
     firstlight() {
       ui.clearLine(); state.camera.shot = 'choice'; jo.whenFree(() => jo.walkTo({ x: 0.98, z: 3.6, heading: -1.05 }));
-      at(SUM_AT, () => { bus.emit(EV.MARLOW_TICK, {}); marlow('sum', SUM_HOLD); });
-      at(SUM_AT + SUM_HOLD + 0.1, () => enter('choice'));   // the labels come up as the line goes: no dead air between them
+      at(0.9, () => { bus.emit(EV.MARLOW_TICK, {}); marlow('sum', 4.2); });
+      // the choice opens the moment that line has been read: nothing to tap in between, nothing to wait for
+      at(5.1, () => enter('choice'));
     },
     choice() { ui.clearLine(); bus.emit(EV.CHOICE_OPEN, {}); },
     epilogue() {
@@ -290,22 +315,20 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
         state.epilogue = 'read'; state.chairAt = { ...CHAIR_READ };
         Object.assign(state, { hatchOpen: false, lampOn: false });
         jo.place({ present: false, action: 'below', cup: 0, cupHeld: false, noCup: true, book: false, page: 0, lookUp: 0, leaf: 0, seat: null, sitK: 0, hatOff: false, hatAt: null, target: null, pos: LANDING });
-        ritual(true, 6.8);
-        at(4.8, () => state.pots.forEach((p) => { p.watered = true; p.wet = 0.7; }));   // the mist reaches them, and they stand
-        at(5.0, () => marlow('epSensor'));
-        // the lamp comes on below, the lid lifts, and she comes up: no cup, a book in her hand. She stops at the shelf,
-        // looks, touches nothing, and sits in the chair. Nothing is said. The rest (the hat, the book, a page, her hand
-        // on a leaf, first light, a bird, her face lifting) is in update().
-        at(10.4, () => { state.lampOn = true; });
-        at(11.6, () => { state.hatchOpen = true; });
-        at(12.6, () => jo.climb(1, () => jo.walkTo({ x: -1.95, z: 3.25, heading: TO_SHELF }, () => {
-          at(2.2, () => jo.whenFree(() => jo.walkTo(CHAIR_FRONT, () => { const j = J(); j.seat = 'chair'; j.sitK = 0; jo.sit(); epi.sitFrom = state.beatTime; })));
-        })));
+        ritual(true, 3.6);
+        at(4.4, () => state.pots.forEach((p) => { p.watered = true; p.wet = 0.7; }));   // the mist reaches them, and they stand
+        at(4.0, () => marlow('epSensor', 3.4));
+        // the lamp comes on below, the lid lifts, and she comes up: no cup, a book in her hand. She goes straight to the
+        // seat and sits. Nothing is said. The rest (the hat, the book, her hand on a leaf, first light) is in update().
+        at(6.0, () => { state.lampOn = true; });
+        at(6.6, () => { state.hatchOpen = true; });
+        at(6.9, () => jo.climb(0.5, () => { if (!state.reducedMotion) state.camera.shot = 'readClose'; jo.walkTo(CHAIR_FRONT, () => { const j = J(); j.seat = 'chair'; j.sitK = 0; jo.sit(); epi.sitFrom = state.beatTime; }); }));   // (round ten: the push-in starts as she steps off the stairs, so the sit-down itself is seen close, not from behind the shelf)
       } else {
         Object.assign(state, { hatchOpen: true, lampOn: true, secondCup: true }); state.valve.sealed = true; state.barrel.level = 0.03; state.barrel.scoops = 0;
-        // she has kept this up. The shelf stands, except the three nearest the stairs, which are tonight's.
-        state.pots.forEach((p, i) => { const done = i >= 3; p.watered = done; p.wet = done ? 0.6 : 0; p.lift = done ? 1 : Math.min(p.lift, 0.2); });
-        jo.place({ present: true, action: 'idle', cup: 0, cupHeld: true, carrying: false, target: null, heading: TO_SHELF, pos: { x: -2.2, z: 3.2 } });
+        // she has kept this up. The shelf stands, except three in the middle of the top row, which are tonight's
+        // (out of the neighbour's way: she pours them with the room to stand, not in front of him)
+        state.pots.forEach((p, i) => { const done = !(i >= 3 && i <= 5); p.watered = done; p.wet = done ? 0.6 : 0; p.lift = done ? 1 : Math.min(p.lift, 0.2); });
+        jo.place({ present: true, action: 'idle', cup: 0, cupHeld: true, carrying: false, cupGiven: 0, offer: 0, target: null, heading: TO_SHELF, pos: { x: -0.72, z: 2.45 } });   // (round fourteen: 23 cm further out, so as he bends to set the bucket down her hand at her side is never drawn against him: tools/pose.mjs handclear)   // (round eleven: out on the open deck, off the line from the camera to the stair head, so as he comes up her brim is never across his face: tools/scene.mjs hatface)
         ritual(false);
         at(5.0, () => marlow('epHand')); at(9.2, () => marlow('epHand2', 3.2));
         at(4.0, () => tam.comeUp({ hasTray: false, bucket: true }));
@@ -316,10 +339,12 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
   };
   // the neighbour reaches the top of the stairs. On night two that is the turn; the night after, it is the bucket.
   bus.on(EV.TAM_ARRIVE, () => {
-    if (state.beat === 'turn') talk(TEXT.turnA, 0.7, () => { tam.setStage('handoff'); tam.look('jo'); state.hot = ['tray']; });
+    // for the hand-over itself the camera rises: from above, all six pots on the tray are seen whichever way it turns
+    // (at eye height a tray seen end on hides a row behind the other, and the pots seem to go)
+    if (state.beat === 'turn') talk(TEXT.turnA, 0.7, () => { tam.setStage('handoff'); tam.look('jo'); state.hot = ['tray']; state.camera.shot = 'take'; });
     else if (state.beat === 'epilogue' && state.ending === 'hand') {
       tam.look('jo');
-      at(0.5, () => say('tam', TEXT.epHandTam, 3.6));
+      at(0.5, () => { say('tam', TEXT.epHandTam, 3.6); state.speaking = { who: 'tam', until: state.time + 3.4 }; });
       at(2.2, () => jo.whenFree(() => jo.walkTo(BUCKET, () => {
         // she dips the cup in the bucket the neighbour is holding. jo.dip runs 0..1..0 for world to pose, if it wants to.
         epi.dip = 0;
@@ -328,7 +353,7 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
   });
 
   function enter(beat) {
-    const from = state.beat; state.beat = beat; state.beatTime = 0; cues = []; waiting = false; lastInput = state.time; showWater = 0;
+    const from = state.beat; state.beat = beat; state.beatTime = 0; cues = []; waiting = false; lastInput = state.time;
     ENTER[beat] && ENTER[beat](); refreshHot(); bus.emit(EV.BEAT_ENTER, { beat, from });
   }
   const after = (t, beat) => { if (!waiting) { waiting = true; at(t, () => enter(beat)); } };
@@ -355,14 +380,21 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
     if (isWaterBeat(b)) {
       // the camera leans in while she works the shelf and steps back when she goes for water
       const atShelf = j.pos.z > 2.5 && j.pos.x < 1.2, forWater = j.target === 'barrel' || j.target === 'valve';
-      if (showValve > 0 && (!j.target || j.target === 'valve' || j.target === 'barrel')) { showValve -= dt; state.camera.shot = 'valve'; }
-      else if (showWater > 0 && waterAt) { showWater -= dt; state.camera.shot = waterAt === 'valve' ? 'valve' : 'barrel'; }
+      if (showValve > 0 && (!j.target || (j.target === 'valve' && j.pos.z >= 0.6) || j.target === 'barrel')) {   // (and once she is nearly at the tap, the tap shot proper)
+        showValve -= dt; state.camera.shot = state.viewport.portrait ? 'valve' : 'valveLook'; }   // (round fifteen: on a wide screen the tap shot sat at her back)
       else {
         showValve = 0;
         // and closes in on the barrel once she is there, so the scoop is not a speck in the dark; leans in for the pour
         const close = state.viewport.portrait || firstPour;
-        state.camera.shot = atShelf && !forWater ? (j.action === 'pour' ? (close ? 'pourClose' : 'pour') : 'shelf') : j.target === 'barrel' && j.pos.x > 2.4 ? 'barrel' : j.target === 'valve' && j.pos.z < 0.6 ? 'valve' : 'follow';
+        // (on a phone, once the barrel is dry, the tap shot holds while she needs it: from there she stands by the barrel
+        // in the near ground and the brass tap is in the middle of the picture. The follow shot lost it off the edge.)
+        const needTap = state.viewport.portrait && !atShelf && (j.target === 'valve' || (!j.target && j.cup <= 0 && waterSource() === 'valve'));
+        state.camera.shot = atShelf && !forWater ? (j.action === 'pour' ? (close ? 'pourClose' : 'pour') : 'shelf') : j.target === 'barrel' && j.pos.x > 2.4 ? 'barrel' : (j.target === 'valve' && j.pos.z < 0.6) || needTap ? 'valve' : 'follow';
       }
+      // with an empty cup, or on her way for water, the following camera holds her AND the water in the picture: on a
+      // phone the tap by the beds or the barrel was off the edge, and the player hunted for it (tools/scene.mjs: source)
+      const src = forWater ? j.target : j.cup <= 0 && !showValve ? waterSource() : null;
+      state.camera.lookTo = src && ANCHORS[src] ? ANCHORS[src].pos : null;
     }
     // the neighbour lifts the tray toward her about seven seconds in, then every eleven: between lifts they hold it still,
     // so the tray's slow breath is the thing on the screen that says take it
@@ -370,20 +402,29 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
     // if nobody takes it by twelve, she does: the hand-off is never a wait
     // nobody has touched anything for a while: a quiet chalk ring on the next thing to tap, and its edge arrow, if it
     // has one, swells once. The same ring as the tray's. Touch screens get it too: there is no hover on a phone.
-    if (isWaterBeat(b) && state.fade > 0.9 && free() && j.action === 'idle' && showValve <= 0 && showWater <= 0
-      && state.time - lastInput > HINT_AFTER && state.time - lastHint > HINT_EVERY) {
+    if (isWaterBeat(b) && state.fade > 0.9 && free() && j.action === 'idle' && showValve <= 0
+      && state.time - lastInput > (b === 'n2_more' && state.beatTime < 20 ? HINT_NEW : j.cup > 0 ? HINT_AFTER : HINT_EMPTY) && state.time - lastHint > HINT_EVERY) {
       const id = hintTarget(); lastHint = state.time;
+      // the ring, and the paper chevron standing over the thing (ui.js: wanted) until the next tap
       if (id) { ui.ripple(id); ui.nudge(id); state.hint = { id, at: state.time }; }
     }
+    // and if the hints were not enough (or the player is tapping pots that have had their water), she gets on with it
+    if (isWaterBeat(b) && state.fade > 0.9 && free() && j.action === 'idle' && showValve <= 0 && !state.__noSelf && Math.min(state.time - lastUse, state.beatTime) > (j.cup > 0 ? SELF_FULL : SELF_EMPTY)) {
+      const id = hintTarget(), a = id && ANCHORS[id];
+      if (a && (a.kind === 'pot' ? j.cup > 0 : j.cup <= 0) && dryPots().some((p) => state.hot.includes(p.id))) { lastUse = state.time; j.target = id; if (a.kind === 'pot') pour(id, a); else fill(id, a, true); }
+      else lastUse = state.time;
+    }
+    if (b === 'turn' && state.camera.shot === 'hatch' && T().stage === 'out') state.camera.shot = 'meet';   // the neighbour steps out onto the roof: the picture goes with them
+    if (b === 'epilogue' && state.ending === 'hand' && T().present && T().stage === 'out' && state.camera.shot === 'epilogueHand') state.camera.shot = 'bucket';
     if (b === 'turn' && state.hot.includes('tray')) {
       trayWait += dt; const c = (trayWait + 3.6) % 6; T().nudge = trayWait > 2 && c > 5.6 - 2.4 && c < 5.6 ? Math.sin(Math.PI * (c - 3.2) / 2.4) : 0;
-      if (trayWait > 4 && trayWait - trayHint > 2.4) { trayHint = trayWait; ui.ripple('tray'); }
-      if (trayWait > 12 && free()) tap('tray');
+      if (trayWait > 4 && trayWait - trayHint > 2.4) { trayHint = trayWait; state.trayHint = true; if (state.__trayRing) ui.ripple('tray'); }   // (the paper chevron over it, not a ring on it: ui.js wanted)
+      if (trayWait > 8 && free()) tap('tray');
     }
-    else { trayWait = 0; trayHint = 0; if (T().nudge) T().nudge = 0; }
+    else { trayWait = 0; trayHint = 0; state.trayHint = false; if (T().nudge) T().nudge = 0; }
     if (b === 'n1_water' && done) after(2.5, 'n1_quiet');
     // the quiet lasts as long as she is looking at things, within reason
-    if (b === 'n1_quiet' && leave && ((state.beatTime > 12 && state.beatTime - lastLook > 4.5) || state.beatTime > 30)) { leave(); leave = null; }
+    if (b === 'n1_quiet' && leave && ((state.beatTime > 7 && state.beatTime - lastLook > 3.5) || state.beatTime > 20)) { leave(); leave = null; }
     if (b === 'n2_water' && state.nightPours >= 3 && free()) after(1.2, 'turn');
     if (b === 'n2_more' && done) after(2.5, 'n2_quiet');
     if (b === 'n3_water') { const goal = Math.min(0.6, state.nightPours / 12 * 0.6); state.sky.dawn += Math.max(-dt * 0.03, Math.min(dt * 0.03, goal - state.sky.dawn)); 
@@ -392,35 +433,30 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
       // (she has to be standing free the whole 2.5 s: a tap in that time puts dawn back, so nobody is cut off mid-walk)
       const tapped = state.valve.fills >= 1, resting = tapped && free() && (j.cup <= 0 || state.time - lastUse > 10);
       dawnWait = resting ? dawnWait + dt : 0;
-      if (done) after(2.5, 'firstlight'); else if (dawnWait > 2.5) after(0.01, 'firstlight'); }
+      if (done) after(2.5, 'firstlight'); else if (dawnWait > 1.2) after(0.01, 'firstlight'); }
     if (b === 'firstlight' || b === 'choice') state.sky.dawn = Math.min(0.85, state.sky.dawn + dt * 0.02);
     if (b === 'epilogue' && epi) {
       // by sensor: she lowers herself into the chair, backing the last step onto the seat
       if (epi.sitFrom != null && epi.sat == null && j.action === 'sit') {
         const k = smooth(0, 1.3, state.beatTime - epi.sitFrom); j.sitK = k;
         j.pos.x = CHAIR_FRONT.x + (CHAIR_READ.x - CHAIR_FRONT.x) * k; j.pos.z = CHAIR_FRONT.z + (CHAIR_READ.z - CHAIR_FRONT.z) * k;
-        if (k >= 1) { epi.sat = state.beatTime; if (!state.reducedMotion) state.camera.shot = 'readClose'; }
+        if (k >= 1) epi.sat = state.beatTime;
       }
       // then the book opens; a little later one page turns, and her free hand goes out to the nearest leaf
       if (epi.sat != null && j.action === 'sit') {
         const since = state.beatTime - epi.sat;
-        // the hat comes off and goes on the kerb beside her: not working tonight. Then the book, then one page.
-        if (!j.hatOff && since > 1.0) { j.hatOff = true; j.hatAt = { x: CHAIR_READ.x + Math.cos(CHAIR_READ.heading) * 0.48, y: 0.012, z: CHAIR_READ.z - Math.sin(CHAIR_READ.heading) * 0.48, ry: 0.6 }; }   // on the deck by the chair
-        if (!j.book && since > 4.0) j.book = true;
-        if (since > 9.0 && (epi.pages || 0) < 1) { epi.pages = 1; epi.pageT = 0; bus.emit(EV.JO_PAGE, {}); }
-        if (since > 25.0 && epi.pages < 2) { epi.pages = 2; epi.pageT = 0; bus.emit(EV.JO_PAGE, {}); }
-        if (epi.pageT != null && epi.pageT < 1) { epi.pageT = Math.min(1, epi.pageT + dt / 1.8); j.page = Math.sin(Math.PI * epi.pageT); }
-        // the one gesture: the page down, her right hand goes out to the basil in front of her (big enough now) and rests on a
-        // leaf, the way you would touch someone's shoulder going past. Then back to the book.
-        j.leaf = smooth(11.0, 12.6, since) * (1 - smooth(15.4, 17.0, since));
-        if (since > 12.4 && !epi.touched) { epi.touched = true; bus.emit(EV.LEAF_TOUCH, { pot: 'p1' }); }
-        // the held beat: the sky starts to pale behind the lamp, a first bird, and she looks up from the page for a while
-        if (since > 13.0) state.sky.dawn = Math.min(0.4, state.sky.dawn + dt * 0.03);
-        j.lookUp = smooth(17.5, 19.5, since) * (1 - smooth(22.5, 24.5, since));
-        if (since > 31.0 && !epi.ended) { epi.ended = true; enter('end'); }
+        // the hat comes off and goes on the deck by her right foot, clear of the seat: not working tonight. Then the book opens.
+        if (!j.hatOff && since > 0.2) { j.hatOff = true; const h = CHAIR_READ.heading; j.hatAt = { x: CHAIR_READ.x + Math.sin(h) * 0.5 + Math.cos(h) * 0.5, y: 0.012, z: CHAIR_READ.z + Math.cos(h) * 0.5 - Math.sin(h) * 0.5, ry: 0.6 }; }   // (round twelve: 15 cm further forward, past her knee, so her sleeve clears the seat's edge on the way down: tools/clash.mjs)   // (round ten: on the shelf side, so her arm is never behind the open lid)   // (beside the chair, not in front: on its way down it never passes between the camera and the book in her lap)
+        if (!j.book && since > 1.6) j.book = true;
+        // the one clear beat, and nothing else: the sky pales and a first bird sings; she looks up from the page at it, a
+        // long moment, and goes back to her book. Nobody needed her up here tonight. She came anyway.
+        if (since > 4.0) state.sky.dawn = Math.min(0.4, state.sky.dawn + dt * 0.08);
+        if (since > 6.2 && !epi.touched) { epi.touched = true; bus.emit(EV.LEAF_TOUCH, { pot: 'p1' }); }
+        j.leaf = 0; j.lookUp = smooth(7.0, 7.9, since) * (1 - smooth(10.0, 11.0, since));   // one glance, then back to the page
+        if (since > 17.0 && !epi.ended) { epi.ended = true; enter('end'); }
       }
       if (epi.dip != null && epi.dip < 1) {
-        const was = epi.dip; epi.dip = Math.min(1, epi.dip + dt / 1.7); j.dip = Math.sin(Math.PI * epi.dip);
+        const was = epi.dip; epi.dip = Math.min(1, epi.dip + dt / 2.6); j.dip = Math.sin(Math.PI * epi.dip);
         if (was < 0.5 && epi.dip >= 0.5) { j.cup = cupCap(4); state.counts.scoops++; bus.emit(EV.JO_SCOOP, { source: 'bucket' }); }
         if (epi.dip >= 1) {
           // then the three pots, one cup, on her own. The player watches: the night after is not theirs to play.
@@ -428,17 +464,21 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
           at(1.2, () => { const d = dryPots(); if (d.length && jo.free()) { j.target = d[0].id; pour(d[0].id, ANCHORS[d[0].id]); } });
         }
       }
+      // her three pots: the picture goes in to the shelf with her, so the water is seen, and comes back out for the cup
+      if (state.ending === 'hand' && (j.action === 'pour' || (j.action === 'walk' && /^p\d/.test(j.target || ''))) && !epi.closing && state.camera.shot === 'bucket') state.camera.shot = 'pour';   // (round eleven: from the moment she sets off: from the bucket shot her walk to the shelf passes in front of his face)
       if (epi.poured && !epi.closing && jo.free() && !chain) {
         // the last of it: back to the stair head, close in. She holds the cup out between them, and the neighbour's hand
         // comes up under it, the way four hands were on the tray. Then the card.
         epi.closing = true; tam.look('jo');
-        jo.walkTo(OFFER, () => { state.camera.shot = 'handClose'; epi.offerAt = state.beatTime; });
+        state.camera.shot = 'handClose'; jo.walkTo(OFFER_WAY, () => jo.walkTo(OFFER, () => { epi.offerAt = state.beatTime; }));   // (round eleven: round by the open deck, never between the camera and his face)
       }
       if (epi.offerAt != null) {
-        const s = state.beatTime - epi.offerAt;
-        j.offer = smooth(0.4, 1.8, s) * (1 - smooth(6.6, 7.8, s)); T().touch = smooth(1.6, 2.8, s) * (1 - smooth(5.6, 6.6, s));
+        // she holds the cup out; the neighbour's open hand comes up under it, and the two of them hold it there, through
+        // the last line and under the card. It stays hers (round twelve).
+        const s = state.beatTime - epi.offerAt, t = T();
+        j.offer = smooth(0.4, 1.8, s); t.touch = smooth(1.6, 2.8, s);
         if (s > 2.4 && !epi.said) { epi.said = true; say('look', TEXT.epHandLast, 4.0); }
-        if (s > 10.0 && !epi.ended) { epi.ended = true; state.pots.forEach((p) => { p.watered = true; }); j.offer = 0; T().touch = 0; enter('end'); }
+        if (s > 7.4 && !epi.ended) { epi.ended = true; state.pots.forEach((p) => { p.watered = true; }); enter('end'); }
       }
     }
   }
@@ -453,9 +493,16 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
     else if (b === 'turn') { if (state.hot.includes('tray')) tap('tray'); }
     else if (b === 'choice' && !state.ending) tap(opts.ending === 'sensor' ? 'sensor' : 'cup');
   }
+  // a tap on a pot that has had its water tonight: she says so, and the next thing to tap is pointed at at once
+  let spentAt = -99;
+  function spent(id) {
+    if (!isWaterBeat(state.beat) || state.fade < 0.9) return;
+    if (state.time - spentAt > 2.5) say('jo', TEXT.jo.had, 2.0); spentAt = state.time;
+    const h = hintTarget(); if (h) { ui.ripple(h); ui.nudge(h); state.hint = { id: h, at: state.time }; lastHint = state.time; }
+  }
   return {
-    enter, tap, update, autopilot, refreshHot, at,
+    enter, tap, update, autopilot, refreshHot, at, spent,
     setOptions(o) { Object.assign(opts, o); },
-    reset() { cues = []; queued = null; waiting = false; leave = null; lastLook = -99; epi = null; showValve = 0; trayWait = 0; trayHint = 0; chain = null; firstPour = false; lastUse = 0; dawnWait = 0; lastInput = 0; lastHint = -99; showWater = 0; waterAt = null; triedPot = false; },
+    reset() { cues = []; queued = null; waiting = false; leave = null; lastLook = -99; epi = null; showValve = 0; trayWait = 0; trayHint = 0; chain = null; firstPour = false; lastUse = 0; dawnWait = 0; lastInput = 0; lastHint = -99; triedPot = false; spentAt = -99; },
   };
 }

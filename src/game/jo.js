@@ -5,7 +5,7 @@ import { EV } from '../core/events.js';
 import { stairPoint, HATCH } from '../core/layout.js';
 import { pathBetween, STAIR_HEAD } from './nav.js';
 
-export const SPEED = 1.45;                 // metres a second on the deck
+export const SPEED = 1.65;                 // metres a second on the deck
 export const STRIDE = Math.PI / 4.4;       // one footfall of `walked` (the skeleton gait: legs swing on sin(walked * 4.4))
 const TURN = 7.5;                          // radians a second, turning on the spot
 const STAIR_TIME = 6.5;                    // seconds for the whole flight
@@ -54,7 +54,7 @@ export function createJo({ state, bus }) {
     if (waits.length && free()) waits.shift()();
   }
   const moving = () => !!(path || face != null || stair);
-  const busy = () => !!act || !!stair || ['take', 'place', 'give', 'plant', 'scoop', 'pour', 'pourEmpty'].includes(J().action);
+  const busy = () => !!act || !!stair || ['take', 'hang', 'place', 'give', 'plant', 'scoop', 'pour', 'pourEmpty'].includes(J().action);
   const free = () => !act && !moving();
 
   return {

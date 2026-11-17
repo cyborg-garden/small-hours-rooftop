@@ -1,6 +1,6 @@
 {
   "name": "small-hours",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Small Hours. A short game about watering what the system does not see.",
@@ -12,15 +12,20 @@
     "round2": "node tools/build.mjs && node tools/round2.mjs && node tools/checks.mjs",
     "stall": "node tools/build.mjs && node tools/stall.mjs",
     "sandbox": "node tools/build.mjs && node tools/sandbox/play.mjs --mouse --ending=hand && node tools/sandbox/play.mjs --touch --ending=sensor",
-    "gates": "node tools/build.mjs --site && node tools/limbs.mjs && node tools/clash.mjs && node tools/props.mjs && node tools/light.mjs && node tools/blind.mjs && node tools/patience.mjs && node tools/guide.mjs && node tools/release.mjs",
+    "gates": "node tools/build.mjs --site && node tools/limbs.mjs && node tools/clash.mjs && node tools/pose.mjs && node tools/light.mjs && node tools/blind.mjs && node tools/patience.mjs && node tools/guide.mjs && node tools/scene.mjs && node tools/pace.mjs && node tools/choice.mjs && node tools/release.mjs",
     "site": "node tools/build.mjs --site",
-    "release": "node tools/build.mjs --site && node tools/release.mjs"
+    "release": "node tools/build.mjs --site && node tools/release.mjs",
+    "assets": "node tools/assets.mjs"
   },
   "dependencies": {
     "three": "0.170.0"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
     "esbuild": "0.24.2",
-    "playwright": "1.49.1"
+    "meshoptimizer": "^0.22.0",
+    "playwright": "1.49.1",
+    "sharp": "^0.33.5"
   }
 }

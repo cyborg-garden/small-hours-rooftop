@@ -42,6 +42,7 @@ for (const run of RUNS) {
   page.on('request', (q) => { if (!q.url().startsWith('file:')) r.requests.push(q.url()); });
   await page.goto(pathToFileURL(dist).href);
   await page.waitForFunction(() => window.__game && window.__game.ready, null, { timeout: 20000 });
+  if (process.argv.includes("--verbose")) await page.evaluate(() => { window.__tl = []; const G = window.__game; G.bus.on("input:tap", (e) => window.__tl.push(G.state.beat + ":" + e.id + "@" + G.state.time.toFixed(1))); G.bus.on("jo:pour:start", (e) => window.__tl.push("pour " + e.pot + "@" + G.state.time.toFixed(1))); });
   const g = (fn, arg) => page.evaluate(fn, arg);
   let n = 0;
   const shot = async (name) => { const f = `${String(++n).padStart(2, '0')}-${name}.png`; await g(() => window.__game.frameStats()); await page.screenshot({ path: join(dir, f) }); r.shots.push(f); };
@@ -71,7 +72,7 @@ for (const run of RUNS) {
   const S = () => g(() => { const s = window.__game.state; return { beat: s.beat, bt: s.beatTime, cup: s.jo.cup, action: s.jo.action, target: s.jo.target, at: s.jo.actionT,
     dry: s.pots.filter((p) => p.present && !p.watered).map((p) => p.id), hot: s.hot, scoops: s.barrel.scoops, found: !!s.valve.found, fills: s.valve.fills, ending: s.ending, leak: s.marlow.leak,
     watered: s.pots.filter((p) => p.watered).length, tam: s.tam.stage, tray: s.tam.hasTray }; });
-  const until = async (cond, max, what) => { for (let t = 0; t < max; t += 0.25) { if (cond(await S())) return true; await step(0.25); } fail(`timeout waiting for ${what}`); return false; };
+  const until = async (cond, max, what) => { for (let t = 0; t < max; t += 0.25) { if (cond(await S())) return true; await step(0.25); } const st = await S(); if (process.argv.includes("--verbose")) console.log(JSON.stringify(await g(() => window.__tl.slice(-20)))); fail(`timeout waiting for ${what}` + (process.argv.includes('--verbose') ? ' ' + JSON.stringify(st) : '')); return false; };
   const tapThing = async (id, optional = false) => {
     let p = await g((i) => window.__game.screenOf(i), id);
     const arrow = page.locator(`#sh-ui button.arrow.on[aria-label="${id}"]`);
@@ -93,10 +94,10 @@ for (const run of RUNS) {
       if (s.cup > 0) {
         // like a person: go for a dry pot you can see; if none is in frame, use the shelf's edge arrow
         const seen = await g((ids) => ids.find((i) => { const q = window.__game.screenOf(i); return q.on && !q.behind && q.x > 24 && q.x < window.innerWidth - 24; }), open(s));
-        const id = seen || open(s)[0]; await tapThing(id);
+        const aim = seen || open(s)[0]; await tapThing(aim); await step(0.1); const id = (await S()).target || aim;   // (a paper chevron over another dry pot may take the press: then that pot is the one she goes to)
         if (!shotPour) { await until((q) => q.action === 'pour' && q.at > 1.1, 12, `pour on ${id}`); await shot(`${label}-pour`); shotPour = true;
           const f = await g(() => window.__game.facts()); if (!f || !f.jo || !f.cup || !f.water) fail(`${label} pour: nothing drawn pouring (${JSON.stringify(f)})`); }
-        await until((q) => !q.dry.includes(id) && idle(q), 14, `${id} watered`);
+        await until((q) => !q.dry.includes(id), 14, `${id} watered`); await until(idle, 30, `free after the row from ${id}`);   // (round eleven: a full cup of six carries on along the row, and on the realistic body's walk the row takes longer than 14 s; the pot itself must still be watered within 14)
       } else {
         const src = s.scoops > 0 || !s.found ? 'barrel' : 'valve', dry = src === 'barrel' && s.scoops === 0; await tapThing(src);
         if (!shotScoop || dry || (src === 'valve' && s.fills === 0)) { await until((q) => q.action === 'scoop' && q.at > 0.6, 14, `scoop at ${src}`); await shot(`${label}-${dry ? 'dry-barrel' : src}`); shotScoop = true; }
@@ -131,7 +132,7 @@ for (const run of RUNS) {
   else { const cb = await cl.boundingBox(); await press(cb.x + cb.width / 2, cb.y + cb.height / 2); }
   if ((await S()).ending !== run.ending) fail(`chose ${run.ending}, state says ${(await S()).ending}`);
   await step(3); await shot('choice-made');
-  await until((s) => s.beat === 'epilogue', 20, 'epilogue'); await step(run.ending === 'sensor' ? 9 : 22); await shot('epilogue');
+  await until((s) => s.beat === 'epilogue', 20, 'epilogue'); await step(run.ending === 'sensor' ? 6 : 22); await shot('epilogue');   // by sensor, the roof is still empty at six seconds: she comes up at eight
   { const f = await g(() => window.__game.facts()); if (!f || (run.ending === 'hand' ? !(f.jo && f.tam && f.bucket) : (f.jo || f.tam))) fail(`epilogue picture wrong for ${run.ending} (${JSON.stringify(f)})`); }
   await until((s) => s.beat === 'end', 70, 'end'); await step(3.5); await page.waitForTimeout(2800); await shot('end');
   r.gameSeconds = +(await g(() => window.__game.state.time)).toFixed(1);

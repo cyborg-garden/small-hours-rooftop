@@ -38,7 +38,7 @@ for (const V of [{ name: 'desk', w: 1440, h: 900, dpr: 1, touch: false }, { name
     pickBed: g.pick(...(() => { const b = g.screenOf('bedB'); return [b.x, b.y]; })()), pickValve: g.pick(v.x, v.y), arrows: g.ui().filter((r) => r.name.startsWith('arrow')).map((r) => r.name) }; });
   await shot('dry-barrel');
   check(dry.found, `${V.name}: the tap is found when the barrel is dry`);
-  check(dry.shot === 'valve', `${V.name}: the camera goes to the tap (shot=${dry.shot})`);
+  check(/^valve/.test(dry.shot), `${V.name}: the camera goes to the tap (shot=${dry.shot})`);
   check(dry.valve.on && !dry.valve.behind, `${V.name}: the tap is on screen in that shot`);
   check(dry.pickValve === 'valve', `${V.name}: a tap on the tap picks the tap (${dry.pickValve})`);
   check(dry.pickBed === 'valve', `${V.name}: a tap on kitchen bed B picks the tap (${dry.pickBed})`);
@@ -47,7 +47,7 @@ for (const V of [{ name: 'desk', w: 1440, h: 900, dpr: 1, touch: false }, { name
   await ev(() => { const g = window.__game; g.step(7.5); });
   const later = await ev(() => { const g = window.__game, v = g.screenOf('valve'); return { shot: g.state.camera.shot, on: v.on && !v.behind, arrows: g.ui().filter((r) => r.name.startsWith('arrow')).map((r) => r.name) }; });
   await shot('after-dry');
-  check(later.arrows.includes('arrow:valve') || later.shot === 'valve', `${V.name}: once the camera is back, the tap is marked (${later.shot}, ${later.arrows.join(',') || 'no arrows'})`);
+  check(later.arrows.includes('arrow:valve') || /^valve/.test(later.shot), `${V.name}: once the camera is back, the tap is marked (${later.shot}, ${later.arrows.join(',') || 'no arrows'})`);
 
   // 3. the hand-off: a tap on the neighbour's body takes the tray; the tray is above the rail
   await ev(() => { const g = window.__game; g.goto('turn'); for (let i = 0; i < 30 * 90; i++) { if (g.state.hot.includes('tray')) break; g.step(1 / 30, false); } g.step(0.5); });
@@ -62,7 +62,7 @@ for (const V of [{ name: 'desk', w: 1440, h: 900, dpr: 1, touch: false }, { name
   await shot('offer-nudge');
 
   // 4. the by-hand epilogue ends with every pot standing and nothing offered
-  await ev(() => { const g = window.__game; g.goto('epilogue', { ending: 'hand' }); g.step(30, true); });
+  await ev(() => { const g = window.__game; g.goto('epilogue', { ending: 'hand' }); for (let i = 0; i < 70 && g.state.beat !== 'end'; i++) g.step(1, true); });
   const ep = await ev(() => { const s = window.__game.state; return { beat: s.beat, hot: s.hot, standing: s.pots.filter((p) => p.watered).length, lifted: s.pots.filter((p) => p.lift > 0.8).length, pours: s.counts.pours }; });
   await shot('epilogue-hand');
   check(ep.hot.length === 0, `${V.name}: nothing is offered in the epilogue`);

@@ -40,11 +40,12 @@ export function createWater(ctx) {
   let flowT = -1, sinceFlow = 9, lastLip = new THREE.Vector3(), lastSoil = new THREE.Vector3(), scoopT = 9, T = 0.4;
   const at = (a, out) => out.set(A.x + vel.x * a, A.y + vel.y * a - 0.5 * G * a * a, A.z + vel.z * a);
   return {
-    group, flowing: () => ribbon.visible,
+    group, flowing: () => ribbon.visible, start: (out) => out.copy(A),   // (for tests: where the stream leaves the cup)
     // lip: world position of the cup's lip. soil: where it should land.
     update(dt, state, env) {
       const J = state.jo, u = J.actionDur ? J.actionT / J.actionDur : 0, t = state.time; nb = 0;
-      const flowing = J.present && J.action === 'pour' && u > 0.15 && u < 0.84;
+      // (only while the cup is drawn and in her hand: water never comes out of the air)
+      const flowing = J.present && J.action === 'pour' && u > 0.15 && u < 0.84 && env.cupInHand();
       // ---- the pour ----
       if (flowing) { if (flowT < 0) flowT = 0; else flowT += dt; sinceFlow = 0; env.lip(lastLip); env.soil(lastSoil); } else { if (flowT >= 0) flowT = -1; sinceFlow += dt; }
       const dur = J.actionDur * 0.69 || 1.5, tEnd = flowing ? Math.max(0, flowT - (dur - 0.0)) : sinceFlow;   // age of the youngest water once the cup has stopped
@@ -52,7 +53,10 @@ export function createWater(ctx) {
       const dx = Bp.x - A.x, dz = Bp.z - A.z, dy = Bp.y - A.y, dh = Math.hypot(dx, dz);
       T = clamp(0.34 + dh * 0.3, 0.34, 0.56); vel.set(dx / T, (dy + 0.5 * G * T * T) / T, dz / T);
       const a1 = flowing ? Math.min(T, flowT) : T, a0 = flowing ? 0 : Math.min(T, sinceFlow);   // ages present in the air: [a0, a1]
-      const live = (flowing || sinceFlow < T) && a1 - a0 > 0.012;
+      // the rope is drawn only while it runs from the cup's lip. Once the cup comes up, what is left in the air is a few
+      // drops falling (below), never a length of rope sailing on by itself beside her hand (round nine: "a white blob
+      // floats next to his hand with nothing pouring"). state.__tail puts the old tail back, for tools/scene.mjs.
+      const live = !!(flowing || (state.__tail && sinceFlow < T)) && a1 - a0 > 0.012 && (!flowing || flowT > 0.04);
       ribbon.visible = live;
       if (live) {
         toLamp.subVectors(lamp, A).normalize();
@@ -80,6 +84,8 @@ export function createWater(ctx) {
         // the broken end: drops on the same path, thinning out, then the crown where it lands
         for (let i = 0; i < 12; i++) { const a = lerp(solidEnd, a1, (i + 0.5 + 0.4 * Math.sin(t * 4.5 + i)) / 12); if (a > a1) continue; at(a, P); const j = Math.sin(i * 12.9898 + Math.floor(t * 6)) * 0.014; bead(P.x + j, P.y, P.z - j, 0.024 - 0.0009 * i, i % 3 ? blue : white); }
       }
+      // what was in the air when the cup came up: a short shower of drops, each still on its path, falling into the pot
+      if (!flowing && !state.__tail && sinceFlow < T) for (let i = 0; i < 8; i++) { const a = lerp(Math.min(T, sinceFlow + 0.05), T, (i + 0.5) / 8); at(a, P); bead(P.x, P.y, P.z, 0.016 - 0.001 * i, i % 3 ? blue : white); }
       const landing = flowing ? flowT > T : sinceFlow < T + 0.25;
       if (landing) for (let i = 0; i < 18; i++) {   // the crown: drops thrown up and out of the pot in a ring, twice the old size
         const ph = ((t * 2.2 + i * 0.37) % 1), a = i * 2.39996, r = 0.04 + ph * (0.14 + 0.04 * (i % 3)), h = Math.sin(Math.PI * ph) * (0.15 + 0.05 * (i % 4));

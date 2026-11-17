@@ -28,7 +28,7 @@ const SITUATIONS = [
   { name: 'choice', beat: 'choice', settle: 2, zones: [] },
   { name: 'epilogue-sensor', beat: 'epilogue', ending: 'sensor', settle: 6, zones: ['mist'] },
   { name: 'epilogue-read', beat: 'epilogue', ending: 'sensor', settle: 32, zones: [] },   // she reads by the stair light: it must hold steady
-  { name: 'epilogue-hand', beat: 'epilogue', ending: 'hand', settle: 24, zones: ['water', 'stairs'] },
+  { name: 'epilogue-hand', beat: 'epilogue', ending: 'hand', until: (s) => s.jo.dip > 0.3, zones: ['water', 'stairs'] },   // (she kneels at the bucket: the camera is still. Round eleven: found by the kneel, not a clock, now that she starts out on the open deck)
 ];
 const VIEWS = [{ name: 'desk', w: 1440, h: 900, dpr: 1, touch: false }, { name: 'phone', w: 390, h: 844, dpr: 2, touch: true }].filter((v) => !only || v.name === only);
 
@@ -45,6 +45,7 @@ for (const V of VIEWS) {
     const r = await page.evaluate(async ([S, FPS, SECONDS, FLICK, CROSS]) => {
       const G = window.__game, st = G.state;
       G.goto('title'); G.goto(S.beat, { ending: S.ending || 'hand' });
+      st.__noSelf = true;   // (round eleven: left alone she now goes for water herself; this gate wants her standing still in a still shot)
       if (S.until) { const f = new Function('s', 'return (' + S.until + ')(s)'); for (let i = 0; i < 30 * 60 && !f(st); i++) G.step(1 / 30, true); } else G.step(S.settle || 2, true);
       // wait for the camera to come to rest (a shot change is a move, not a flicker); the breath of sway is under a millimetre a frame
       const cam = G.debug().camera, last = cam.position.clone(); let still = 0, waited = 0;

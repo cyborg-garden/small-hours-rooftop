@@ -57,9 +57,10 @@ export function buildShelf(ctx) {
   const cAmber = col('amber'), cGreen = col('marlow'), cDead = mix('barrelBand', 'marlowBox', 0.3), cur = new THREE.Color().copy(cAmber);
   // the feed line that maintenance fits once the shelf is on record (sensor ending, the night after)
   const fb = new Batch(), fy = 1.22, fzc = (S.upper.z + S.lower.z) / 2;
-  for (const x of [S.x0 + 0.25, (S.x0 + S.x1) / 2, S.x1 - 0.3]) { const pts = []; for (let k = 0; k <= 8; k++) { const a = Math.PI * k / 8; pts.push(V(x, fy * Math.sin(a) + 0.01, fzc + Math.cos(a) * 0.46)); } fb.add(tube(pts, 0.016, 5), 'barrelBand'); }
-  fb.add(tube([V(S.x0 + 0.15, fy, fzc), V(S.x1 - 0.2, fy, fzc)], 0.02, 5), 'barrelBand');
-  for (let k = 0; k < 4; k++) fb.add(cyl(0.012, 0.03, 0.06, 5), 'marlowBox', xf(S.x0 + 0.45 + k * 0.6, fy - 0.045, fzc));
+  for (const x of [S.x0 + 0.85, S.x1 - 0.3]) {   // (round fourteen: two hoops, not three. The one at the shelf's end by her chair stood between the phone's reading camera and the near pot, a pale band down the picture)
+    const pts = []; for (let k = 0; k <= 8; k++) { const a = Math.PI * k / 8; pts.push(V(x, fy * Math.sin(a) + 0.01, fzc + Math.cos(a) * 0.46)); } fb.add(tube(pts, 0.016, 5), 'barrelBand'); }
+  fb.add(tube([V(S.x0 + 0.75, fy, fzc), V(S.x1 - 0.2, fy, fzc)], 0.02, 5), 'barrelBand');
+  for (let k = 0; k < 3; k++) fb.add(cyl(0.012, 0.03, 0.06, 5), 'marlowBox', xf(S.x0 + 1.05 + k * 0.6, fy - 0.045, fzc));
   const feed = fb.mesh(paint.quiet()); feed.visible = false;
   const group = new THREE.Group(); group.add(st.group, feed);
   const tmp = new THREE.Vector3();

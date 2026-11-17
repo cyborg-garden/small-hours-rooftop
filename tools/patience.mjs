@@ -10,11 +10,9 @@
 //   toast     pouring from an empty cup says the cup is empty
 //   barrel    the mouse over any part of the barrel (stand to rim) shows a hand, in three shots
 //   arrows    every edge arrow that shows, pressed, sends her there (or says why not); a spent arrow is gone at once
-//   reading   the sensor ending, with no look ever taken: she comes up and sits, says nothing, holds at least 25 s, and
+//   reading   the sensor ending, with no look ever taken: she comes up and sits, says nothing, holds 14 to 26 s, and
 //             ends on its own card
 //   opening   from Begin: she is on screen within 8 s, and the roof is the player's within 18 s
-//   faces     both people: pale eyes with dark irises, brows, a mouth, each a clear value step from the skin, and in the
-//             reading close-up the camera sees her eyes, not hair
 //   node tools/patience.mjs [--only=tray,dawn] [--html=path]      SH_GPU=1 for a real GPU
 import { chromium } from 'playwright';
 import { existsSync } from 'node:fs';
@@ -50,7 +48,7 @@ for (const v of VIEWS) {
       let mark = null, taken = null, t = 0;
       for (let i = 0; i < 30 * 20 && taken == null; i++) {
         G.step(1 / 30, false); t += 1 / 30;   // no player at all
-        if (mark == null && [...document.querySelectorAll('#sh-ui svg.fx circle.ring')].some((c) => +c.getAttribute('opacity') > 0.05)) mark = t;
+        if (mark == null && ([...document.querySelectorAll('#sh-ui svg.fx circle.ring')].some((c) => +c.getAttribute('opacity') > 0.05) || G.ui().some((u) => u.name === 'arrow:tray'))) mark = t;   // (a ring, or since round ten the chevron over it)
         if (!s.tam.hasTray) taken = t;
       }
       return { mark, taken };
@@ -208,51 +206,12 @@ if (want('reading')) {
   });
   report(r.beat === 'end' && r.sat != null, `reading: she came up and sat, with no look taken`);
   report(!r.lines.length, `reading: nothing said once she sits${r.lines.length ? ' (said: ' + r.lines.join(' / ') + ')' : ''}`);
-  report(r.held != null && r.held >= 25, `reading: holds ${r.held == null ? '-' : r.held.toFixed(1)} s from sitting to the card (at least 25 s)`);
+  report(r.held != null && r.held >= 14 && r.held <= 26, `reading: holds ${r.held == null ? '-' : r.held.toFixed(1)} s from sitting to the card (14 to 26 s: long enough to be quiet, short enough not to drag)`);
   report(r.kept && r.rows === 1, `reading: its own card (warm: ${r.kept}, ${r.rows} ledger row${r.rows === 1 ? '' : 's'}: "${r.ledger}")`);
   await ctx.close();
 }
-if (want('faces')) {
-  const { ctx, page } = await open(v);
-  const r = await page.evaluate(() => {
-    const G = window.__game, s = G.state, D = G.debug(), T = D.T;
-    const lum = (c) => { const g = c.map((v) => Math.pow(Math.max(0, v), 1 / 2.2)); return 0.299 * g[0] + 0.587 * g[1] + 0.114 * g[2]; };   // vertex colours are linear: compare them as seen
-    const partColour = (f, tag) => { const p = f.parts.find((q) => q.tag === tag); if (!p) return null; const ix = f.mesh.geometry.index.array[p.start], c = f.mesh.geometry.attributes.color.array; return [c[ix * 3], c[ix * 3 + 1], c[ix * 3 + 2]]; };
-    const out = {};
-    for (const who of ['jo', 'tam']) {
-      const f = D[who].fig, skin = partColour(f, 'head'), o = {};
-      for (const tag of ['eye', 'iris', 'brow', 'mouth']) { const c = partColour(f, tag); o[tag] = c ? +Math.abs(lum(c) - lum(skin)).toFixed(3) : null; }
-      out[who] = o;
-    }
-    // the reading close-up: rays from the camera to each iris must meet the eye first, not hair
-    G.goto('choice', { ending: 'sensor' }); G.goto('epilogue', { ending: 'sensor' });
-    for (let i = 0; i < 30 * 90 && !(s.jo.action === 'sit' && s.jo.book); i++) G.step(1 / 30, false);
-    const seen = [];
-    for (const extra of [4, 12]) {   // reading, then looking up from the page
-      G.step(extra, false); D.render.frame(D.scene);
-      const f = D.jo.fig; f.root.updateMatrixWorld(true); f.mesh.geometry.computeBoundingSphere();
-      const pos = f.mesh.geometry.attributes.position.array, idx = f.mesh.geometry.index.array, M = f.mesh.matrixWorld, cam = D.camera, ray = new T.Raycaster();
-      const irises = f.parts.filter((p) => p.tag === 'iris'); let met = 0;
-      for (const p of irises) {
-        const c = new T.Vector3(); let n = 0;
-        for (let k = p.start; k < p.start + p.count; k++) { c.x += pos[idx[k] * 3]; c.y += pos[idx[k] * 3 + 1]; c.z += pos[idx[k] * 3 + 2]; n++; }
-        c.multiplyScalar(1 / n).applyMatrix4(M);
-        ray.set(cam.position, c.clone().sub(cam.position).normalize()); ray.far = cam.position.distanceTo(c) + 0.02;
-        const h = ray.intersectObject(f.mesh, false)[0]; if (!h) continue;
-        const o = h.faceIndex * 3, part = f.parts.find((q) => o >= q.start && o < q.start + q.count);
-        if (part && /^(eye|iris|lid|lash|glint|brow)$/.test(part.tag)) met++; else seen.push(part ? part.tag : '?');
-      }
-      out['read+' + extra] = { met, of: irises.length, shot: s.camera.shot, hit: seen.slice() };
-    }
-    return out;
-  });
-  for (const who of ['jo', 'tam']) {
-    const o = r[who], miss = ['eye', 'iris', 'brow', 'mouth'].filter((k) => o[k] == null), weak = ['eye', 'iris', 'brow', 'mouth'].filter((k) => o[k] != null && o[k] < 0.15);
-    report(!miss.length && !weak.length, `faces ${who}: ${miss.length ? 'missing ' + miss.join(', ') : 'eyes, irises, brows, mouth'}${weak.length ? '; too close to the skin: ' + weak.join(', ') : ''} (value steps ${JSON.stringify(o)})`);
-  }
-  for (const k of ['read+4', 'read+12']) { const o = r[k]; report(o.of > 0 && o.met >= 1, `faces: in the reading close-up (${k}, ${o.shot}) the camera meets ${o.met}/${o.of} eyes${o.hit.length ? '; blocked by ' + o.hit.join(', ') : ''}`); }
-  await ctx.close();
-}
+// (the faces check lived here while faces were built of coded parts. The people are real models now: tools/guide.mjs
+// holds that each has modelled eyes and brows, and that the camera meets her eyes and the book in the reading close-up.)
 await browser.close();
 console.log(failed ? `PATIENCE FAILED (${failed})` : 'PATIENCE OK');
 process.exit(failed ? 1 : 0);

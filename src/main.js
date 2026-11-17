@@ -26,7 +26,10 @@ function frame(now) {
   requestAnimationFrame(frame);
   const ms = now - last; last = now;
   if (state.paused) return;
-  if (state.auto) tick(Math.min(0.05, ms / 1000)); else { render.update(0); }
+  // a slow machine (8 to 20 frames a second) still plays in real time: the game is stepped in pieces of at most 50 ms,
+  // the picture once. Below about 5 frames a second the game slows down rather than jump.
+  if (state.auto) { const total = Math.min(0.2, ms / 1000); let left = total; while (left > 0.0501) { game.update(0.05); left -= 0.05; } game.update(left); world.update(total); render.update(total); audio.update(total); }
+  else { render.update(0); }
   render.frame(world.scene, ms);
 }
 document.addEventListener('visibilitychange', () => {

@@ -33,9 +33,12 @@ export function inkPatch(m) {
   const prev = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
   m.onBeforeCompile = function (shader, renderer) {
     if (prev) prev.call(this, shader, renderer);
-    const a = inkless(this) ? '0.' : '1.';
+    const a = inkless(this) ? '0.' : this.userData.inkSkin ? '.97' : '1.';   // (.97: skin. The edge pass draws skin over its own skin only faintly)
     let fs = shader.fragmentShader, vs = shader.vertexShader, body;
-    if (fs.includes('#include <normal_fragment_begin>')) body = `gInk = vec4(normal * .5 + .5, ${a});`;
+    // a face drawn small reads as a smear if every crease of it is inked: inkSoft pulls the normal the line pass sees
+    // toward the camera, so only the outline (from depth) and the strongest folds are drawn on skin
+    const soft = this.userData.inkSoft ? Math.min(0.95, this.userData.inkSoft).toFixed(3) : null;
+    if (fs.includes('#include <normal_fragment_begin>')) body = soft ? `gInk = vec4(normalize(mix(normal, vec3(0., 0., 1.), ${soft})) * .5 + .5, ${a});` : `gInk = vec4(normal * .5 + .5, ${a});`;
     else if (vs.includes('#include <project_vertex>')) {       // unlit: take the face normal from the surface itself
       vs = vs.replace('void main() {', 'varying vec3 vInkPos;\nvoid main() {').replace('#include <project_vertex>', '#include <project_vertex>\n\tvInkPos = mvPosition.xyz;');
       fs = 'varying vec3 vInkPos;\n' + fs;
@@ -49,7 +52,7 @@ export function inkPatch(m) {
     shader.fragmentShader = INK_OUT + fs.slice(0, end) + '\t' + body + '\n' + fs.slice(end);
     shader.vertexShader = vs;
   };
-  m.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + (inkless(this) ? '|ink0' : '|ink1') + (this.userData.capLight ? '|cap' + this.userData.capLight : ''); };
+  m.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + (inkless(this) ? '|ink0' : '|ink1') + (this.userData.capLight ? '|cap' + this.userData.capLight : '') + (this.userData.inkSoft ? '|soft' + this.userData.inkSoft : '') + (this.userData.inkSkin ? '|skin' : ''); };
   return m;
 }
 

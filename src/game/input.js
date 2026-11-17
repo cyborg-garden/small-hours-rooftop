@@ -18,6 +18,8 @@ export function createInput({ canvas, state, render, world, onTap, onMiss, onBeg
       try { const v = world.cupLip(); if (v && isFinite(v.x + v.y + v.z)) return { x: v.x, y: v.y - 0.04, z: v.z }; } catch (_) {}
     }
     if (id === 'tam' && state.tam.present) return { x: state.tam.pos.x, y: (state.tam.y || 0) + 1.0, z: state.tam.pos.z };
+    // the tray is wherever the neighbour is holding it: out in front of their chest
+    if (id === 'tray' && state.tam.present && state.tam.hasTray) { const h = state.tam.heading ?? Math.PI / 2; return { x: state.tam.pos.x + Math.sin(h) * 0.45, y: (state.tam.y || 0) + 1.22, z: state.tam.pos.z + Math.cos(h) * 0.45 }; }
     return a.pos;
   }
   const radiusOf = (id, pos) => { const a = ANCHORS[id]; return Math.max(a.kind === 'pot' ? 22 : 30, a.radius * render.pxPerMetre(pos) * 1.2); };
@@ -26,7 +28,7 @@ export function createInput({ canvas, state, render, world, onTap, onMiss, onBeg
     const a = ANCHORS[id], pos = where(id), p = render.project(pos); if (p.behind) return null;
     let d = Math.hypot(p.x - x, p.y - y);
     if (id === 'barrel') {   // the barrel is the whole barrel, its stand to its rim, not a point at its middle
-      const lo = render.project({ x: pos.x, y: 0.15, z: pos.z }), hi = render.project({ x: pos.x, y: 1.45, z: pos.z });
+      const lo = render.project({ x: pos.x, y: 0.15, z: pos.z }), hi = render.project({ x: pos.x, y: 1.1, z: pos.z });   // (its lip is at 1.0 m)
       const vx = hi.x - lo.x, vy = hi.y - lo.y, L = vx * vx + vy * vy, t = L > 0 ? clamp(((x - lo.x) * vx + (y - lo.y) * vy) / L, 0, 1) : 0;
       d = Math.min(d, Math.hypot(lo.x + vx * t - x, lo.y + vy * t - y));
     }
@@ -49,6 +51,12 @@ export function createInput({ canvas, state, render, world, onTap, onMiss, onBeg
       if (score < bestScore) { best = id; bestScore = score; }
     }
     return best && ANCHORS[best].kind === 'alias' ? ANCHORS[best].to : best;
+  }
+  // a tap that picks nothing, but lands on a pot that has had its water tonight: the game answers it (arc.js: spent)
+  function pickSpent(x, y) {
+    let best = null, bd = 1e9;
+    for (const p of state.pots) { if (!p.present || !p.watered || !ANCHORS[p.id]) continue; const h = reach(p.id, x, y); if (h && h.d <= h.r && h.d < bd) { best = p.id; bd = h.d; } }
+    return best;
   }
   const pinchDist = () => { const p = [...pointers.values()]; return p.length < 2 ? 0 : Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y); };
 
@@ -87,7 +95,8 @@ export function createInput({ canvas, state, render, world, onTap, onMiss, onBeg
     const d = down; down = null; canvas.style.cursor = hover ? 'pointer' : '';
     if (d.moved || e.type === 'pointercancel' || !state.begun) return;
     const id = pick(e.clientX, e.clientY);
-    if (id) onTap(id, { x: e.clientX, y: e.clientY }); else onMiss(e.clientX, e.clientY);
+    // at the choice only the two paper labels choose: a stray tap on the roof (on the cup in her hand, say) picks nothing
+    if (id && !(state.beat === 'choice' && ANCHORS[id] && ANCHORS[id].kind === 'choice' && !state.breakStray)) onTap(id, { x: e.clientX, y: e.clientY }); else onMiss(e.clientX, e.clientY, pickSpent(e.clientX, e.clientY));
   };
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());

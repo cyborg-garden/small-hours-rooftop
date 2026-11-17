@@ -18,13 +18,14 @@ export function createState(seed = 340) {
       action: 'below',  // below | climb | idle | walk | scoop | pour | pourEmpty | take | carry | place | sit | descend | plant
       actionT: 0, actionDur: 0, target: null, cup: 0, cupHeld: true, carrying: false, walked: 0,
       noCup: false, book: false, page: 0, hatOff: false, hatAt: null, seat: null, sitK: 0, leaf: 0 },   // the night after, by sensor: no cup, a book, and the hat comes off
+    speaking: null,   // { who, until }: who is talking right now, for the talking clip and the listener's head
     tam: { present: false, stage: 'below', // below | climbing | top | handoff | leaving | gone | watering
       t: 1, pos: { x: -6, z: 4.25 }, y: -2.6, walked: 0, heading: Math.PI / 2, hasTray: true, bucket: false },
     // growth: 0 seedling, 1 young, 2 grown. Set by game at the start of each night.
     pots: POT_IDS.map((id, i) => ({ id, index: i, tray: i < 6 ? 0 : 1, present: i < 6, watered: false, growth: 0,
       wet: 0, lift: 0, wetShown: 0, note: POT_NOTES[i], pos: ANCHORS[id].pos })),
     barrel: { scoops: 3, level: 0.8 },      // cupfuls left, and how full it looks (0..1)
-    valve: { found: false, fills: 0, sealed: false },
+    valve: { found: false, fills: 0, sealed: false, said3: false },
     marlow: { beds: [false, false, false], misting: false, shelfSensor: false, leak: false, line: null },
     hatchOpen: true, lampOn: true, secondCup: false, stakeAsProp: false,
     sky: { dawn: 0 },                      // 0 deep night .. 1 first light
@@ -32,5 +33,6 @@ export function createState(seed = 340) {
     counts: { pours: 0, scoops: 0, looks: 0, lingered: 0 }, epilogue: null,
     chairAt: null,                         // the night after, by sensor: where the folding chair has been carried to
     hint: null,                            // the last idle hint: { id, at }
+    trayHint: false,                       // the tray left waiting: its chevron is up
   };
 }

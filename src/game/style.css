@@ -21,7 +21,7 @@ canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block;
   /* the wash is cut in three so its brushed ends keep their shape however long the line is */
   border-style: solid; border-color: transparent; border-width: 0 2.1em; border-image: var(--wash) 0 100 0 100 fill / 0 2.1em / 0 stretch;
   opacity: 0; transition: opacity .3s ease; }
-#sh-ui .line.on { opacity: 1; transition: opacity .65s ease .14s; }
+#sh-ui .line.on { opacity: 1; transition: opacity .26s ease-out; }   /* (round fifteen: was .65 s after .14 s; over the warm shelf the words sat faint, half there, for most of a second) */
 /* every voice has a dot of its own colour: Marlow's green, Jo's straw hat, the neighbour's coat */
 #sh-ui .line.marlow::before, #sh-ui .line.jo::before, #sh-ui .line.tam::before { content: ''; display: inline-block; width: .44em; height: .44em;
   border-radius: 50%; margin-right: .62em; vertical-align: .13em; }

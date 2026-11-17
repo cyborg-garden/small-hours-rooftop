@@ -7,7 +7,7 @@ import { ANCHORS } from '../core/layout.js';
 export function installBridge({ state, bus, game, world, render, audio, tick }) {
   const DT = 1 / 30;
   const api = {
-    ready: true, version: '1.0.0', beats: BEAT_IDS, anchors: Object.keys(ANCHORS),
+    get ready() { return world.ready ? world.ready() : true; }, version: '1.0.0', beats: BEAT_IDS, anchors: Object.keys(ANCHORS),
     get state() { return state; }, bus, audio: { names: audio.names, renderOffline: (n, o) => audio.renderOffline(n, o) },
     begin() { game.begin(); },
     seed(n) { game.reset(n); return n; },
