@@ -6,10 +6,13 @@ import { Batch, paint, col, mix, shade, lathe, clamp, lerp, smooth, follow } fro
 import { createPerson, clipDur, REAL } from './person.js';
 import { stairGait, clipSpeed } from './gait.js';
 import { CUP, makeCup } from './barrel.js';
+import { READ, at, hatPath, hatHeld } from '../core/reading.js';
 
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _w = new THREE.Vector3(), _u = new THREE.Vector3(), _u2 = new THREE.Vector3();
 export const SEAT_Y = 0.445;   // the seat height her sitting clip expects, at her size
-export const SEAT_BACK = 0.29; // and how far behind her feet the seat's middle is
+export const SEAT_BACK = 0.29;
+export const HAT = { brim: 0.258, sit: 0.06 };
+const HAT_GRIP = new THREE.Vector3(0, 0.13, -0.075);   // her right wrist, in the hat's frame, as her hand holds it by the crown, palm on top and fingers over its front (round seventeen)   // the brim's radius, and how far below the top of her head the hat's band sits (round seventeen) // and how far behind her feet the seat's middle is
 
 export function createJo() {
   const jacket = { dark: shade('joJacket', 0.5), light: col('joJacket'), lo: 0.03, hi: 0.5 };
@@ -44,21 +47,45 @@ export function createJo() {
   const D = fig.D, hs = 1;
   const walk = clipSpeed(fig, 'Walk_Formal_Loop', clipDur('Walk_Formal_Loop')), CYCLE = walk.speed * clipDur('Walk_Formal_Loop');   // metres per full walk cycle
   const walkC = clipSpeed(fig, 'Walk_Carry_Loop', clipDur('Walk_Carry_Loop'), 'cCarry'), CYCLE_C = walkC.speed * clipDur('Walk_Carry_Loop');   // and with the tray
-  const hatLocal = new THREE.Matrix4().compose(new THREE.Vector3(0, D.top - D.head - 0.075, 0.0), new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.34, 0, 0)), new THREE.Vector3(1, 1, 1));   // where the hat sits on the head
+  fig.lockFeet = true; fig.gait = { cycle: CYCLE, dur: clipDur('Walk_Formal_Loop') };   // (round seventeen: tools/gait.mjs reads the step from here)
+  const hatLocal = new THREE.Matrix4().compose(new THREE.Vector3(0, D.top - D.head - HAT.sit, 0.0), new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.34, 0, 0)), new THREE.Vector3(1, 1, 1));   // where the hat sits on the head
   // the hat: wide brim, low crown, a band. Its own mesh, carried on the head bone, because the night after she takes it off.
+  // (round seventeen: the brim was 64 cm across, four times her head, and it sat down to her brows on a bald skull: in the
+  // night-two talk her head read as too small (the owner). The brim is 53 cm now and the hat sits 1.5 cm higher, on her
+  // hair. Still the widest thing about her. tools/guide.mjs headsize)
   const hat = (() => { const b = new Batch();
-    b.add(lathe([[0, -0.004], [0.1, -0.004], [0.315, -0.046], [0.322, -0.037], [0.114, 0.012], [0.106, 0.092], [0.09, 0.106], [0, 0.108]], 18), (p, n) => n.y < -0.25 ? shade('joHat', 0.7) : col('joHat'));
+    b.add(lathe([[0, -0.004], [0.1, -0.004], [HAT.brim, -0.04], [HAT.brim + 0.007, -0.032], [0.114, 0.012], [0.106, 0.092], [0.09, 0.106], [0, 0.108]], 18), (p, n) => n.y < -0.25 ? shade('joHat', 0.7) : col('joHat'));
     b.add(lathe([[0.108, 0.014], [0.12, 0.014], [0.114, 0.046], [0.106, 0.046]], 18), mix('tray', 'joJacket', 0.3));
     const m = b.mesh(paint.lit2()); m.matrixAutoUpdate = false; m.frustumCulled = false;
     m.castShadow = false;   // (worn back a little, and casting no shadow: the brim's own underside is the shade on her face, not a black band over her eyes)
     return m; })();
   let hatK = 0;   // 0 on her head .. 1 on the kerb
+  const hatHand = { held: false, inHand: new THREE.Matrix4(), at: new THREE.Matrix4(), t: 0 };   // the hat in her hand (round seventeen)
   const cup = makeCup(); cup.matrixAutoUpdate = false;
   const c0 = new THREE.Vector3(0.012, -0.205, -0.075), cupLocal = new THREE.Matrix4().makeRotationX(Math.PI / 2).setPosition(c0);
   const group = new THREE.Group(); group.add(fig.root, cup, hat);
   const hair = fig.meshes.find((m) => m.userData.role === 'hair');
+  // (round seventeen) under the hat her hair is kept, all but the tail. With all of it hidden her head was a bald skull
+  // under a wide brim, a narrow face on a long neck, and beside the neighbour in the night-two talk it read as too small
+  // (the owner). The hair that covers her head stays; the ponytail below the back of her skull goes while the hat is on
+  // (it hung below the brim and read as a grey stalk at night: round fifteen, tools/guide.mjs shirtback nape).
+  const hairCap = hair && (() => { const g = hair.geometry, P = g.attributes.position, I = g.index.array, sc = D.scale, hy = fig.restP.Head.y + 0.005, hz = fig.restP.Head.z - 0.02, keep = [];
+    const tail = (i) => (P.getY(i) * sc < hy && P.getZ(i) * sc < hz) || P.getZ(i) * sc < fig.restP.Head.z - 0.085;   // (and the knot it is tied in, which stood out through the back of the crown)
+    for (let t = 0; t < I.length; t += 3) if (!(tail(I[t]) || tail(I[t + 1]) || tail(I[t + 2]))) keep.push(I[t], I[t + 1], I[t + 2]);
+    return { full: g.index, cap: new THREE.BufferAttribute(P.count > 65535 ? new Uint32Array(keep) : new Uint16Array(keep), 1) }; })();
   let kneelT = 0;
   const hatHead = new THREE.Matrix4(), hatRest = new THREE.Matrix4(), hatMid = new THREE.Matrix4(), _p = new THREE.Vector3(), _q3 = new THREE.Quaternion(), _s = new THREE.Vector3();
+  // where the hat is, k of the way from her head to its place on the deck: lifted up off her head first, then out to the
+  // side, then down (round twelve: out first, so her hand and sleeve go round the seat, not through its corner)
+  function hatPose(out, k, J) {
+    fig.boneMatrix('head', hatHead, hatLocal);
+    if (k < 0.002 || !J.hatAt) return out.copy(hatHead);
+    const A = J.hatAt; hatRest.compose(_p.set(A.x, A.y, A.z), _q3.setFromEuler(_e.set(0.06, A.ry || 0, 0.04)), _s.set(1, 1, 1));
+    const kk = smooth(0, 1, k); hatHead.decompose(_v, _q, _s); hatRest.decompose(_w, _q2, _s);
+    const kx = smooth(0.1, 0.55, kk), ky = smooth(0.25, 0.95, kk), up = smooth(0, 0.2, kk);
+    _v.x += (_w.x - _v.x) * kx; _v.z += (_w.z - _v.z) * kx; _v.y += (_w.y - _v.y) * ky + (0.035 * up + Math.sin(Math.PI * kx) * 0.04) * (1 - ky); _q.slerp(_q2, kk);
+    return out.compose(_v, _q, _s.set(1, 1, 1));
+  }
   const lipLocal = new THREE.Vector3(0, CUP.h, CUP.r), lip = new THREE.Vector3(), M = new THREE.Matrix4();
   let heading = 0, shown = false;
   const qLevel = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
@@ -86,11 +113,16 @@ export function createJo() {
     p.nkRX = 0.05;   // chin a little down under the brim
     const moving = act === 'walk' || act === 'carry', stairs = act === 'climb' || act === 'descend', hasCup = !env.carryBook && !J.carrying && J.cupHeld !== false && !J.cupGiven;
     if (hasCup) carry(p, t, calm);   // (the night after: no cup. The shut book rides in her left hand, which swings as the clip has it)
+    if (env.carryBook) { p.gripL = 1; p.curlL = 0.95; p.thL = 0.35; }   // (round seventeen: and her fingers close round it)
     // standing, she stands at ease: feet under her hips, the weight going from one leg to the other
     if (!moving && !stairs && act !== 'sit') fig.stand(p, calm ? 0 : t);
     // the tray: a real carrying walk, the tray lying on her two open hands
     if (J.carrying) { p.cIdle = 0; p.cCarry = 1; p.nkRX += 0.16; p.spRX += 0.12; p.chRX += 0.06; }   // (the library's carry leans back as if under a crate: a tray of pots is lighter, so she stands up over it)
     else if (act === 'walk' || act === 'carry') { p.cIdle = 0; p.cWalk = 1; p.nkRX = -0.05; p.spRX -= 0.04; p.chRX -= 0.02; }   // walking tall: head up over the shoulders, not pushed forward
+    // (round seventeen) walking past the neighbour to his bucket, the night after by hand: her free arm swings small and
+    // close, so it is never drawn across him (her longer step swung it out over his legs: tools/pose.mjs handclear)
+    if (act === 'walk' && state.tam.present && state.tam.bucket && (state.tam.stage === 'top' || state.tam.stage === 'out')) {
+      const ph = Math.sin(2 * Math.PI * fig.time.Walk_Formal_Loop / clipDur('Walk_Formal_Loop')); p.ikL = 1; p.aLx = D.sw + 0.005; p.aLy = D.wrist + 0.05; p.aLz = 0.02 + 0.05 * ph; p.curlL = 0.35; }
     if (stairs) {
       p.cIdle = 0.4; p.cWalk = 0.6;
       stairGait(p, fig, J.pos.x, act === 'climb' ? 1 : -1); p.spRX += act === 'climb' ? 0.14 : 0.04; p.nkRX += act === 'climb' ? -0.08 : 0.16;
@@ -139,17 +171,35 @@ export function createJo() {
       p.cIdle = 0; p.cSit = 1; p.hipY = 0.19 - SEAT_Y; p.spRX = 0.02; p.chRX = 0.02;   // (round eleven: sitting up, so the shirt does not fold down over her lap: tools/pose.mjs shirt)
       if (!J.noCup && hasCup) holdCup(p, _u.set(-0.13, 0.5, 0.36), 0.3, 0, false);
     }
-    // the hat coming off: the right hand goes up to the crown, brings it down to the deck beside her, and lets go
-    if (hatK > 0.02 && hatK < 0.98) {
+    // the hat coming off (round seventeen: src/core/reading.js). Her right hand goes up to the brim at the side of her head
+    // and closes on it; only then does the hat move, and it moves in her hand: up off her head, out past the seat and down
+    // to the deck; the hand opens, and comes back to her lap. The wrist is put where the hat's grip is (HAT_GRIP, in the
+    // hat's own frame), so wherever the hat is, the hand is on it. Bending to the deck, she leans out over her right knee.
+    const rt = J.readT;
+    if (rt != null && J.hatAt && act === 'sit') {
+      const H = READ.hat, up = at(H.back, rt), kR = at(H.reach, rt) * (1 - at([H.back[0] + 0.45, H.back[1] + 0.25], rt)), path = hatPath(rt);   // (coming back, the hand rises clear of the seat's edge first: tools/clash.mjs)
+      if (kR > 0.001) {
+        hatPose(hatMid, path, J); const g = F(_p.copy(HAT_GRIP).applyMatrix4(hatMid), new THREE.Vector3()); g.y += 0.38 * up; g.x -= 0.06 * up;
+        const shut = at(H.grip, rt) * (1 - at(H.let, rt));
+        armTo(p, 'R', g, kR, 0.1, lerp(0.25, 0.95, shut)); p.hRroll = lerp(p.hRroll, -1.5, kR); p.thR = lerp(p.thR, lerp(0.2, 0.7, shut), kR);
+        p.pRx = lerp(p.pRx, -0.9, kR); p.pRy = lerp(p.pRy, lerp(0.1, -0.5, path), kR); p.pRz = lerp(p.pRz, -0.1, kR);
+        const low = smooth(0.25, 1, path) * (1 - at(H.back, rt)); p.spRZ += 0.72 * low; p.chRZ += 0.42 * low; p.spRX += 0.32 * low; p.chRX += 0.25 * low; p.pelRX += 0.2 * low;   // (the hips tip too, so the shirt at her back stays clear of the seat: tools/clash.mjs) p.nkRX += 0.1 * kR; p.hdRY -= 0.3 * low;
+        p.hdRY -= 0.25 * kR * (1 - low); p.nkRY -= 0.1 * kR * (1 - low);   // (and she glances at it as her hand comes up)
+      }
+    } else if (hatK > 0.02 && hatK < 0.98) {
       const k = smooth(0, 0.12, hatK) * (1 - smooth(0.86, 1, hatK)), h = F(_p.setFromMatrixPosition(hat.matrix), new THREE.Vector3());
       armTo(p, 'R', _u2.set(h.x + 0.02, h.y + 0.1, h.z + 0.08), k, 0.3, 0.8); p.pRx = -0.8; p.pRy = -0.5; p.pRz = 0.3;
       const low = smooth(0.4, 0.9, hatK) * k; p.spRZ += 0.3 * low; p.chRZ += 0.2 * low; p.spRX += 0.45 * low; p.chRX += 0.2 * low; p.nkRX += 0.1 * k; p.hdRY -= 0.3 * low;
     }
     // reading: both hands under the book's lower corners, the head tipped to the page
     if (env.bookHands && act === 'sit') {
-      const k = env.bookHands.k, L = F(env.bookHands.L, new THREE.Vector3()), R = F(env.bookHands.R, _v);
-      armTo(p, 'L', L, k, -0.4, 0.5); armTo(p, 'R', R, k, -0.4, 0.5); p.hLroll = lerp(p.hLroll, -0.9, k); p.hRroll = lerp(p.hRroll, 0.35, k);
-      p.pLx = 0.22; p.pRx = -0.22; p.pLy = p.pRy = -1; p.pLz = p.pRz = -0.35;   // elbows down against her sides, not out like wings
+      // (round seventeen) each hand on its own weight: the left lays the shut book on her lap and rests on it, the right
+      // comes to it once the hat is down; both close on its edges, lift it, and the left opens the cover (world: index.js)
+      const BH = env.bookHands, k = BH.k, L = F(BH.L, new THREE.Vector3()), R = F(BH.R, _v);
+      armTo(p, 'L', L, BH.kL, BH.tiltL, BH.curlL, BH.azL || 0); armTo(p, 'R', R, BH.kR, BH.tiltR, BH.curlR, BH.azR || 0); p.hLroll = lerp(p.hLroll, BH.rollL, BH.kL); p.hRroll = lerp(p.hRroll, BH.rollR, BH.kR);
+      p.thL = lerp(p.thL, BH.thL, BH.kL); p.thR = lerp(p.thR, BH.thR, BH.kR);
+      p.pLx = lerp(p.pLx, 0.22, BH.kL); p.pLy = lerp(p.pLy, -1, BH.kL); p.pLz = lerp(p.pLz, -0.35, BH.kL);   // elbows down against her sides, not out like wings
+      p.pRx = lerp(p.pRx, -0.22, BH.kR); p.pRy = lerp(p.pRy, -1, BH.kR); p.pRz = lerp(p.pRz, -0.35, BH.kR);
       // the head tips only a little and the eyes do the rest, so her face stays open to the stair light
       p.nkRX += 0.07 * k; p.hdRX += 0.07 * k; p.chRX += 0.02 * k;
       p.nkRY -= 0.03 * k; p.hdRY -= 0.05 * k; p.hdRX -= 0.03 * k;   // and turned to the book: the seated clip has her head 12 degrees to her left of it, so her eyes had to look hard sideways in their sockets to reach the page and she read as wary (round fourteen: tools/scene.mjs readeyes)   // her head a little down to the page in her lap (round eleven: less, so from the camera above her face is over the book, not behind it: tools/guide.mjs reading)
@@ -254,18 +304,22 @@ export function createJo() {
       fig.boneMatrix('handR', cup.matrix, cupLocal); cup.matrixWorldNeedsUpdate = true; cup.visible = J.cupHeld !== false;   // (world moves it to her hip, or into the neighbour's hand, after this)
       lip.copy(lipLocal).applyMatrix4(cup.matrix);
       // the hat: on her head, or (the night after, by sensor) lifted off and set on the kerb beside her, in an arc
-      hatK = follow(hatK, J.hatOff && J.hatAt ? 1 : 0, dt, 1.15);   // slow: the one gesture that says she is not working tonight
+      hatK = J.readT != null && J.hatAt ? hatPath(J.readT) : follow(hatK, J.hatOff && J.hatAt ? 1 : 0, dt, 1.15);   // (in the chair: on the reading clock, where her hand has it)
       // (round fifteen) her hair is up under the hat while she wears it, and falls once the hat is lifted off. The ponytail
       // hanging below the brim went to a grey stalk at night, and from behind it read as a bare grey neck between the
       // hat and the collar (the 8.1 review). tools/guide.mjs shirtback: nape
-      if (hair) hair.visible = hatK > 0.15;
-      fig.boneMatrix('head', hatHead, hatLocal);
-      if (hatK < 0.002 || !J.hatAt) hat.matrix.copy(hatHead);
-      else {
-        const A = J.hatAt; hatRest.compose(_p.set(A.x, A.y, A.z), _q3.setFromEuler(_e.set(0.06, A.ry || 0, 0.04)), _s.set(1, 1, 1));
-        const k = smooth(0, 1, hatK); hatHead.decompose(_v, _q, _s); hatRest.decompose(_w, _q2, _s);
-        const kx = smooth(0, 0.6, k), ky = smooth(0.35, 1, k); _v.x += (_w.x - _v.x) * kx; _v.z += (_w.z - _v.z) * kx; _v.y += (_w.y - _v.y) * ky + Math.sin(Math.PI * kx) * 0.08 * (1 - ky); _q.slerp(_q2, k); hat.matrix.compose(_v, _q, _s.set(1, 1, 1));   // (round twelve: out to the side first, then down, so her hand and sleeve go round the seat, not through its corner)
-      }
+      if (hair) { const want = hatK > 0.15 ? hairCap.full : hairCap.cap; if (hair.geometry.index !== want) hair.geometry.setIndex(want); }
+      if (J.readT != null && J.hatAt) {
+        // (round seventeen) in the chair the hat is in her hand from the moment it leaves her head: drawn where her hand
+        // has it (as it sat in her hand when she took hold), so hand and hat never part. Let go a little over the deck it
+        // drops the last few centimetres and settles where it then stays.
+        const rt = J.readT;
+        if (hatHeld(rt)) { fig.boneMatrix('handR', M); if (!hatHand.held) { hatHand.held = true; hatHand.inHand.copy(M).invert().multiply(hatPose(hatMid, hatK, J)); } hat.matrix.copy(M).multiply(hatHand.inHand); hatHand.at.copy(hat.matrix); hatHand.t = rt; }
+        else if (rt >= READ.hat.let[0] && hatHand.held) {
+          hatPose(hatMid, 1, J); const fall = rt - hatHand.t, h0 = hatHand.at.elements[13] - hatMid.elements[13], k = h0 > 0 ? clamp(fall / Math.sqrt(2 * h0 / 9.8)) : 1;
+          hatHand.at.decompose(_v, _q, _s); hatMid.decompose(_w, _q2, _s); _v.x += (_w.x - _v.x) * k; _v.z += (_w.z - _v.z) * k; _v.y += (_w.y - _v.y) * k * k; _q.slerp(_q2, k); hat.matrix.compose(_v, _q, _s.set(1, 1, 1));
+        } else { hatHand.held = false; hatPose(hat.matrix, rt >= READ.hat.let[0] ? 1 : 0, J); }
+      } else { hatHand.held = false; hatPose(hat.matrix, hatK, J); }
       hat.matrixWorldNeedsUpdate = true;
     },
   };

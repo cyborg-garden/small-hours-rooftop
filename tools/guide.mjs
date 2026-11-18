@@ -42,9 +42,19 @@
 //   readlid  the reading ending once the push-in has settled, and under the end card: the open lid is at most 12 percent
 //            of the picture, and at most 5 under the title and the "On record" line (round sixteen; red on the round
 //            fifteen build, desk: 34 percent, the card's line 30)
+//            (round seventeen, phone: no lid above the bottom fifth of the picture; red on the round sixteen build, 34)
 //   talkframe the night-two talk on a phone: eyes 12 to 36 percent down, each head at least 6.5 percent of the height,
 //            the higher crown at most 22 percent down, the shelf's front in the lower part (round sixteen; red on the
 //            round fifteen build: eyes 41 percent down, heads 4.9 percent, crowns 39 percent down)
+//   headsize the night-two talk, every second of the meet shot, both screens: at least 165 cm2 of her head (skin above
+//            the neck, hair, eyes, brows) is what the camera meets first (round seventeen; red on the round sixteen build,
+//            desk: 137, a narrow face on a bald skull under a 64 cm brim)
+//   readgrip the reading ending, hat down and book up, at 30 Hz: the hat moves only in her hand (knuckle within 5 cm of
+//            the crown, or the 0.4 s it drops when let go over the deck), then lies on the deck and stays; the book is drawn
+//            throughout, never jumps, moves only with a palm on it, and while she reads both palms are within 2 cm of it (3.5 until a second pass: a left fist 3 cm off the cover's corner passed)
+//            and no fingertip is more than 1 cm inside it (round seventeen; red on the round sixteen build)
+//   readhoop the sensor ending's reading picture, settled and under the card: the feed line drawn across the shelf, a pot
+//            or her over at most 0.4 percent of it, and in front of no pot (round seventeen; red on the round sixteen build: a dark hoop across the shelf)
 //   node tools/guide.mjs [--only=hint,empty] [--html=path]      SH_GPU=1 for a real GPU
 import { chromium } from 'playwright';
 import { existsSync } from 'node:fs';
@@ -222,6 +232,96 @@ for (const v of VIEWS) {
     for (const [name, r] of out) { if (process.env.SH_DEBUG) console.log(name, r.bad.join(' ')); report(r.n >= 8 && r.share >= 0.8, `${v.name} belt, ${name}: ${r.ok} of ${r.n} columns down her waist go shirt, one thin dark line, trousers (${(r.share * 100).toFixed(0)} percent, at least 80; gap ${r.gap} px on average, ${r.ink} with ink in it, ${r.mixed} pixels of neither colour)`); }
     await ctx.close();
   }
+  if (want('readgrip')) {
+    // (round seventeen) the reading ending, hat down and book up: "the animation makes no sense and her hand is hardly
+    // holding the book" (the owner). Sampled at 30 Hz from the moment she starts to sit until the end card:
+    //   hat     it moves only while her right hand is on it (the middle knuckle within 5 cm of the crown) or in the
+    //           0.4 s after she lets it go a little over the deck; it is still on her head when her hand gets there;
+    //           afterwards it lies on the deck (within 3 cm of it) and does not move again
+    //   book    it is drawn the whole time (it never appears or vanishes), never jumps more than 4 cm in a frame, and
+    //           moves (relative to her) only while a palm is on it (within 5 cm of the volume)
+    //   holding from the moment the book is open to the card, each palm is within 2 cm of the book (3.5 let a fist 3 cm off the corner pass), and no fingertip
+    //           is more than 1 cm inside it
+    // (red on the round sixteen build: the hat slid off with her hand 30 cm away; the open book appeared in her lap)
+    const { ctx, page } = await open(v);
+    const r = await page.evaluate(() => {
+      const G = window.__game, s = G.state, D = G.debug(), T = D.T, f = D.jo.fig, hat = D.held[1], book = D.book;
+      G.goto('choice', { ending: 'sensor' }); G.goto('epilogue', { ending: 'sensor' });
+      for (let i = 0; i < 30 * 90 && !(s.jo.action === 'sit'); i++) G.step(1 / 30, false);
+      const W = (o) => new T.Vector3().setFromMatrixPosition(o.matrixWorld), B = (n) => new T.Vector3().setFromMatrixPosition(f.bones[n].matrixWorld);
+      const palm = (k) => B('hand_' + k).lerp(B('middle_01_' + k), 0.6);
+      const inv = new T.Matrix4(), box = new T.Box3(), bb = new T.Box3();
+      const bookBox = () => { box.makeEmpty(); for (const c of book.children) { if (!c.isMesh) continue; c.geometry.computeBoundingBox(); c.updateMatrix(); bb.copy(c.geometry.boundingBox).applyMatrix4(c.matrix); box.union(bb); } inv.copy(book.matrixWorld).invert(); return box; };
+      const dist = (p) => { bookBox(); return box.distanceToPoint(p.clone().applyMatrix4(inv)); };
+      const depth = (p) => { bookBox(); const q = p.clone().applyMatrix4(inv); if (!box.containsPoint(q)) return 0; return Math.min(q.x - box.min.x, box.max.x - q.x, q.y - box.min.y, box.max.y - q.y, q.z - box.min.z, box.max.z - q.z); };
+      const out = { frames: 0, hatLoose: 0, hatLooseAt: null, hatOnHead: null, hatRest: 0, hatRestN: 0, hatMovedAfter: 0, bookHidden: 0, bookJump: 0, bookLoose: 0, bookLooseAt: null, gapL: 0, gapR: 0, clip: 0, holdN: 0 };
+      let prevHat = null, prevBook = null, prevRel = null, letAt = null, firstMove = null, restAt = null; const t0 = s.time;
+      for (let i = 0; i < 30 * 40 && s.beat !== 'end'; i++) {
+        G.step(1 / 30, false); D.scene.updateMatrixWorld(true); out.frames++;
+        const rt = s.time - t0 - 1.3;   // (seconds since she finished sitting: her own clock, so an older build is measured the same)
+        const crown = new T.Vector3(0, 0.108, 0).applyMatrix4(hat.matrixWorld), knuckle = B('middle_01_r'), grip = knuckle.distanceTo(crown);
+        // (worn, it goes where her head goes: measured in her head's frame until it first leaves it, then in the world)
+        const hp = firstMove == null ? W(hat).applyMatrix4(new T.Matrix4().copy(f.bones.Head.matrixWorld).invert()) : W(hat);
+        if (firstMove != null && prevHat && prevHat.w === 'head') prevHat = W(hat);
+        if (firstMove != null && letAt == null && grip > 0.05) letAt = rt;   // (her hand has opened and left it)
+        if (prevHat && hp.distanceTo(prevHat) > 0.002) {
+          if (firstMove == null) { firstMove = rt; out.hatOnHead = +grip.toFixed(3); }
+          const dropping = letAt != null && rt - letAt < 0.4;
+          if (grip > 0.05 && !dropping) { out.hatLoose++; if (out.hatLooseAt == null) out.hatLooseAt = +rt.toFixed(2); }
+          if (restAt != null) out.hatMovedAfter++;
+        }
+        if (letAt != null && rt - letAt > 0.6) { if (restAt == null) restAt = rt; out.hatRestN++; if (Math.abs(hp.y - 0.012) <= 0.03) out.hatRest++; }
+        prevHat = hp; if (firstMove == null) prevHat.w = 'head';
+        // the book
+        if (!book.visible) out.bookHidden++;
+        const bp = W(book); if (prevBook && bp.distanceTo(prevBook) > 0.04) out.bookJump++; prevBook = bp;
+        const rel = f.toFigure(bp.clone(), new T.Vector3());
+        if (prevRel && rel.distanceTo(prevRel) > 0.002 && rt > -0.3) { const dl = dist(palm('l')), dr = dist(palm('r')); if (Math.min(dl, dr) > 0.05) { out.bookLoose++; if (out.bookLooseAt == null) out.bookLooseAt = +rt.toFixed(2) + ' (' + dl.toFixed(2) + ', ' + dr.toFixed(2) + ')'; } }
+        prevRel = rel;
+        if (s.jo.book && rt > 6.5 && (s.jo.lookUp || 0) < 0.01) { out.holdN++; out.gapL = Math.max(out.gapL, dist(palm('l'))); out.gapR = Math.max(out.gapR, dist(palm('r')));
+          for (const k of ['l', 'r']) for (const fn of ['index_03_', 'middle_03_', 'ring_03_', 'thumb_03_']) out.clip = Math.max(out.clip, depth(B(fn + k))); }
+      }
+      out.firstMove = firstMove; return out;
+    });
+    if (process.env.SH_DEBUG) console.log(JSON.stringify(r));
+    report(r.firstMove != null && r.hatOnHead != null && r.hatOnHead <= 0.05 && r.hatLoose === 0, `${v.name} readgrip hat: her hand is on it when it first moves (${r.hatOnHead == null ? '-' : (r.hatOnHead * 100).toFixed(1) + ' cm'}, at most 5) and it never moves without her hand (${r.hatLoose} frames${r.hatLooseAt != null ? ', first at ' + r.hatLooseAt + ' s' : ''})`);
+    report(r.hatRestN >= 30 && r.hatRest === r.hatRestN && r.hatMovedAfter === 0, `${v.name} readgrip hat: once let go it lies on the deck (${r.hatRest} of ${r.hatRestN} frames) and stays (moved ${r.hatMovedAfter} frames)`);
+    report(r.bookHidden === 0 && r.bookJump === 0, `${v.name} readgrip book: drawn the whole time (${r.bookHidden} frames missing) and never jumps (${r.bookJump} jumps over 4 cm)`);
+    report(r.bookLoose === 0, `${v.name} readgrip book: it moves only in her hands (${r.bookLoose} frames without a palm on it${r.bookLooseAt ? ', first at ' + r.bookLooseAt : ''})`);
+    report(r.holdN >= 60 && r.gapL <= 0.02 && r.gapR <= 0.02 && r.clip <= 0.01, `${v.name} readgrip holding: reading, her palms at most ${(r.gapL * 100).toFixed(1)} and ${(r.gapR * 100).toFixed(1)} cm from the book (cap 2), fingertips at most ${(r.clip * 100).toFixed(1)} cm inside it (cap 1; ${r.holdN} frames)`);
+    await ctx.close();
+  }
+  if (want('readhoop')) {
+    // (round seventeen) the sensor ending's reading picture: a dark hoop of the feed line stood right across the shelf
+    // and its pots. Once she has sat and the camera has settled, and under the end card: the feed line is what the camera
+    // meets first, drawn over the shelf, a pot or plant, or her, over at most 0.4 percent of the picture (a 64 x 40 grid),
+    // and in front of none of the twelve pots' rims
+    const { ctx, page } = await open(v);
+    const r = await page.evaluate(() => {
+      const G = window.__game, s = G.state, D = G.debug(), T = D.T, cam = D.camera; G.goto('choice', { ending: 'sensor' }); G.goto('epilogue', { ending: 'sensor' });
+      const feed = D.props.shelf.children.find((o) => o.isMesh);
+      const shown = (o) => { for (let q = o; q; q = q.parent) if (!q.visible) return false; return true; };
+      const meshes = []; D.scene.traverse((o) => { if (o.isMesh && o.geometry.attributes.position.count < 60000) meshes.push(o); });
+      const ray = new T.Raycaster(), cp = new T.Vector3(), d = new T.Vector3();
+      // (what the line is drawn over: the shelf, a pot or plant, or her. Over the sky or the far roof a thin line is a line)
+      const over = new Set(); for (const r of [D.jo.fig.root, ...D.potMeshes]) r.traverse((o) => { if (o.isMesh) over.add(o); });
+      const behind = (h) => over.has(h.object) || (h.point.x > -2.55 && h.point.x < 0.15 && h.point.z > 3.4 && h.point.z < 4.45 && h.point.y < 0.75 && h.point.y > 0.05);   // (the shelf is in the roof's one static mesh: by where the ray met it, SHELF in core/layout.js)
+      const look = () => { D.scene.updateMatrixWorld(true); cam.updateMatrixWorld(); cp.setFromMatrixPosition(cam.matrixWorld); const vis = meshes.filter(shown); let n = 0, N = 0, pots = 0;
+        for (let j = 0; j < 40; j++) for (let i = 0; i < 64; i++) { N++; d.set(((i + 0.5) / 64) * 2 - 1, -((j + 0.5) / 40) * 2 + 1, 0.5).unproject(cam).sub(cp).normalize(); ray.set(cp, d); ray.near = 0; ray.far = 60; const hs = ray.intersectObjects(vis, false);
+          if (hs[0] && hs[0].object === feed) { const b = hs.find((x) => x.object !== feed); if (b && behind(b)) n++; } }
+        for (const p of s.pots.filter((q) => q.present)) { const w = new T.Vector3(p.pos.x, p.pos.y, p.pos.z); d.copy(w).sub(cp); const L = d.length(); ray.set(cp, d.normalize()); ray.far = L - 0.02; const h = ray.intersectObjects(vis, false)[0]; if (h && h.object === feed) pots++; }
+        return { share: n / N, pots }; };
+      const out = { looks: 0, worst: 0, pots: 0 }; let sat = null, endT = null;
+      for (let i = 0; i < 30 * 120; i++) { G.step(1 / 30, false);
+        if (s.jo.action === 'sit' && s.camera.shot === 'readClose' && sat == null) sat = s.time;
+        if (s.beat === 'end' && endT == null) endT = s.time;
+        const last = endT != null && s.time - endT > 2.5;
+        if ((sat != null && s.time - sat > 4 && i % 60 === 0) || last) { const k = look(); out.looks++; out.worst = Math.max(out.worst, k.share); out.pots = Math.max(out.pots, k.pots); }
+        if (last) break; }
+      return out; });
+    report(r.looks >= 4 && r.worst <= 0.004 && r.pots === 0, `${v.name} readhoop: the feed line is drawn across the shelf, the pots or her over at most ${(r.worst * 100).toFixed(2)} percent of the reading picture (cap 0.4) and in front of ${r.pots} pot rims (none; ${r.looks} looks)`);
+    await ctx.close();
+  }
   if (want('readlid')) {
     // (round sixteen) the reading ending's last picture, on a wide screen: the open lid filled 40 percent of it, a flat
     // brown slab on the left that pushed her and the shelf into the right half. From 4 s after she sits (the push-in has
@@ -238,10 +338,10 @@ for (const v of VIEWS) {
       const lidShare = (pts) => { const lid = D.props.hatch.children.find((o) => o.isGroup && Math.abs(o.rotation.x) > 1); if (!lid) return 0; D.scene.updateMatrixWorld(true); cam.updateMatrixWorld(); cp.setFromMatrixPosition(cam.matrixWorld);
         const vis = meshes.filter(shown); let n = 0;
         for (const [x, y] of pts) { d.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1, 0.5).unproject(cam).sub(cp).normalize(); ray.set(cp, d); ray.near = 0; ray.far = 60;
-          const h = ray.intersectObjects(vis, false)[0]; if (h) { for (let q = h.object; q; q = q.parent) if (q === lid) { n++; break; } } }
+          const h = ray.intersectObjects(vis, false)[0]; if (h) { for (let q = h.object; q; q = q.parent) if (q === lid) { n++; if (pts.length >= 600) out.top = Math.min(out.top, y / innerHeight); break; } } }
         return pts.length ? n / pts.length : 0; };
       const grid = (x0, y0, x1, y1, nx, ny) => { const p = []; for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) p.push([x0 + (x1 - x0) * (i + 0.5) / nx, y0 + (y1 - y0) * (j + 0.5) / ny]); return p; };
-      const out = { worst: 0, looks: 0, under: {}, at: null }; let sat = null, endT = null;
+      const out = { worst: 0, looks: 0, under: {}, at: null, top: 1 }; let sat = null, endT = null;
       for (let i = 0; i < 30 * 120; i++) {
         G.step(1 / 30, false);
         if (s.jo.action === 'sit' && s.camera.shot === 'readClose' && sat == null) { sat = s.time; out.sat = +s.beatTime.toFixed(1); }
@@ -256,6 +356,9 @@ for (const v of VIEWS) {
     });
     const und = Object.entries(r.under); if (process.env.SH_DEBUG) console.log('sat at', r.sat, (r.all || []).join(' '));
     report(r.looks >= 5 && r.worst <= 0.12, `${v.name} readlid: the open lid is at most ${(r.worst * 100).toFixed(0)} percent of the reading picture (cap 12; worst at ${r.at}; ${r.looks} looks)`);
+    // (round seventeen) on a phone the lid was 40 percent of the reading picture, a blurred brown slab across its bottom:
+    // nowhere above the bottom fifth
+    if (v.touch) report(r.looks >= 5 && r.top >= 0.8, `${v.name} readlid: the lid reaches up to ${(r.top * 100).toFixed(0)} percent down the picture at the highest (at least 80: the bottom fifth only)`);
     report(und.length === 2 && und.every(([, k]) => k <= 0.05), `${v.name} readlid: under the end card's words, lid ${und.map(([n, k]) => n + ' ' + (k * 100).toFixed(0) + ' percent').join(', ') || 'not found'} (cap 5)`);
     await ctx.close();
   }
@@ -287,6 +390,37 @@ for (const v of VIEWS) {
     report(r.frames >= 20 && r.eyeLo >= 0.12 && r.eyeHi <= 0.36 && r.xLo >= 0.03 && r.xHi <= 0.97, `${v.name} talkframe: both faces in the picture, eyes ${f2(r.eyeLo)} to ${f2(r.eyeHi)} percent down (12 to 36), across ${f2(r.xLo)} to ${f2(r.xHi)} percent (${r.frames} looks)`);
     report(r.frames >= 20 && r.head >= 0.065 && r.crown <= 0.22, `${v.name} talkframe: each head at least ${(r.head * 100).toFixed(1)} percent of the height (at least 6.5), the higher crown at most ${f2(r.crown)} percent down (at most 22: no empty band over them)`);
     report(r.frames >= 20 && r.shelf >= 0.62, `${v.name} talkframe: the shelf's front in the lower part of the picture (${f2(r.shelf)} percent down at the highest; at least 62)`);
+    await ctx.close();
+  }
+  if (want('headsize')) {
+    // (round seventeen) the night-two talk: "sometimes her head looks too small" (the owner). Her hair was all hidden under
+    // a 64 cm brim worn down to her brows: a narrow face on a bald skull. Through the whole meet shot, every second: how
+    // much of her head the camera sees, in square metres (a disc 32 cm across facing the camera at her head, a ray to each
+    // of 576 points; counted where the first thing met is her skin above the neck, her hair, eyes or brows). At least
+    // 0.0165 at every look (her face, forehead and hair from the brow up; red on the round sixteen build, desk: 0.0137)
+    const { ctx, page } = await open(v);
+    const r = await page.evaluate(() => {
+      const G = window.__game, s = G.state, D = G.debug(), T = D.T, cam = D.camera; G.goto('turn', { ending: 'sensor' });
+      const area = (f) => { const cp = new T.Vector3().setFromMatrixPosition(cam.matrixWorld), skin = f.meshes.find((m) => m.userData.role === 'skin');
+        const head = new Set(f.meshes.filter((m) => ['hair', 'eyes', 'brow', 'skin'].includes(m.userData.role)));
+        const c = new T.Vector3().setFromMatrixPosition(f.bones.Head.matrixWorld); c.y += 0.06;
+        const zc = cp.clone().sub(c).normalize(), xa = new T.Vector3(0, 1, 0).cross(zc).normalize(), ya = zc.clone().cross(xa);
+        const shown = (o) => { for (let q = o; q; q = q.parent) if (!q.visible) return false; return true; };
+        const meshes = []; for (const r of [D.jo.fig.root, D.tam.fig.root, ...D.held]) r.traverse((o) => { if (o.isMesh && shown(o)) meshes.push(o); });
+        const ray = new T.Raycaster(), N = 24, R = 0.16, neckY = new T.Vector3().setFromMatrixPosition(f.bones.neck_01.matrixWorld).y; let n = 0;
+        for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) { const p = c.clone().addScaledVector(xa, -R + (i + 0.5) * 2 * R / N).addScaledVector(ya, -R + (j + 0.5) * 2 * R / N);
+          ray.set(cp, p.clone().sub(cp).normalize()); ray.near = 0; ray.far = cp.distanceTo(p) + 0.5;
+          const h = ray.intersectObjects(meshes, false)[0]; if (h && head.has(h.object) && !(h.object === skin && h.point.y < neckY + 0.02)) n++; }
+        return n * (2 * R / N) ** 2; };
+      const out = { looks: 0, min: 9, tam: [] }; let since = null;
+      for (let i = 0; i < 30 * 120 && s.beat === 'turn'; i++) {
+        G.step(1 / 30, false);
+        if (s.camera.shot !== 'meet') { since = null; continue; } if (since == null) since = s.time; if (s.time - since < 1.5 || i % 30) continue;
+        D.scene.updateMatrixWorld(true); cam.updateMatrixWorld(); const a = area(D.jo.fig); out.looks++; if (a < out.min) { out.min = a; out.at = +s.beatTime.toFixed(1); } out.tam.push(area(D.tam.fig));
+      }
+      out.tam.sort((x, y) => x - y); out.tamMed = out.tam[Math.floor(out.tam.length / 2)] || 0; return out;
+    });
+    report(r.looks >= 10 && r.min >= 0.0165, `${v.name} headsize: in the talk her head shows ${(r.min * 1e4).toFixed(0)} cm2 at the least (at ${r.at} s; at least 165; his, at the median: ${(r.tamMed * 1e4).toFixed(0)}; ${r.looks} looks)`);
     await ctx.close();
   }
   if (want('shirtback')) {
@@ -329,7 +463,7 @@ for (const v of VIEWS) {
       const ch = new T.Vector3().setFromMatrixPosition(D.jo.fig.bones.spine_03.matrixWorld), nk = new T.Vector3().setFromMatrixPosition(D.jo.fig.bones.neck_01.matrixWorld), hd = new T.Vector3().setFromMatrixPosition(D.jo.fig.bones.Head.matrixWorld);
       let seen = 0, grey = 0, hair = 0, skin = 0; const hits = [];
       for (const [o, k] of [[ch, 0.5], [ch, 0.8], [nk, 0.2], [nk, 0.4], [nk, 0.6], [nk, 0.8]]) for (const sd of [-0.025, 0, 0.025]) { const p = (o === ch ? ch.clone().lerp(nk, k) : nk.clone().lerp(hd, k)).add(new T.Vector3(sd, 0, 0).applyQuaternion(hq)); const h = first(p); if (h) p.copy(ray.ray.at(dir.copy(p).sub(cp).length() - h.d - 0.001, new T.Vector3())); hits.push(h ? (h.o.userData.role || h.o.name || h.o.parent && h.o.parent.name || '?') : '-'); if (!h || !D.jo.fig.meshes.includes(h.o)) continue;
-        const c = pix(p); if (!c) continue; seen++; if (h.o.userData.role === 'hair') hair++; if (h.o.userData.role === 'skin') skin++; if (c[0] < c[2] * 1.05) grey++; }
+        const c = pix(p); if (!c) continue; seen++; if (h.o.userData.role === 'hair') hair++; if (h.o.userData.role === 'skin') skin++; if (c[0] < c[2] * 1.05 && Math.max(c[0], c[1], c[2]) >= 64) grey++; }   // (round seventeen: a near-black pixel is an ink line, not grey paint; the smaller brim shows her jaw line there: 32,30,38 to 39,39,49 seen)
       return { n: seenV, edges, dark: +dark.toFixed(4), seen, grey, hair, skin, wide: innerWidth > innerHeight, hits: hits.join(' ') };
     });
     if (process.env.SH_DEBUG) console.log(JSON.stringify(r)); if (process.env.SH_SHOT) { const u = await page.evaluate(() => window.__shirtShot); (await import('node:fs')).writeFileSync(process.env.SH_SHOT + '-' + v.name + '.png', Buffer.from(u.split(',')[1], 'base64')); } report(r.n > 300 && r.dark <= 0.15, `${v.name} shirtback: ${(r.dark * 100).toFixed(1)} percent of the seen shirt's edges cross from one tone of light to another (cap 15; the 8.1 build 20; ${r.n} vertices seen)`);

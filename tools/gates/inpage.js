@@ -551,7 +551,10 @@
       if (D.potMeshes) { const B3 = new T.Box3(); for (const m of D.potMeshes) { if (!m || !shown(m)) continue; B3.setFromObject(m).expandByScalar(0.01);
         const inPot = arm.slice(2).find((pt) => B3.containsPoint(pt)); if (inPot) { add('jo', 'readpot', inPot, {}); break; } } }
       const pv = new V3().setFromMatrixPosition(f.bones.pelvis.matrixWorld);
-      if (D.book && D.book.visible && ((s.jo.sitK ?? 1) < 0.999 || pv.y > 0.58)) add('book', 'readearly', pv, { gap: +pv.y.toFixed(2) });
+      // (round seventeen: the book is one volume she carries shut in her hand and opens once she is down; only an open one
+      // counts here: its cover, the half that swings, turned less than 60 degrees from flat)
+      const cover = D.book && D.book.children.find((c) => /R(_|$)/.test(c.userData.part || '')), opened = !cover || Math.abs(cover.rotation.z) < 1.05;
+      if (D.book && D.book.visible && opened && ((s.jo.sitK ?? 1) < 0.999 || pv.y > 0.58)) add('book', 'readearly', pv, { gap: +pv.y.toFixed(2) });
     }
     // ---- reading: once the camera has come in on her, nothing stands in front of her face or the open book
     if (D.book && D.book.visible && s.jo.action === 'sit' && s.jo.book && s.camera.shot === 'readClose') {
@@ -638,7 +641,9 @@
     // open spread within 12 degrees, and inside the head it turns no more than 16 degrees to either side (her head faces
     // the book; the eyes only drop to it). Every frame she reads with the camera settled on her, and under the end card.
     // The 7.6 review: her eyes turned sideways, off the page, and she looked wary instead of absorbed.
-    if (s.ending === 'sensor' && present('jo') && s.jo.action === 'sit' && s.jo.book && !(s.jo.lookUp > 0.01) && !(s.jo.leaf > 0.02) && D.book && D.book.visible && s.camera.shot === 'readClose' && s.time - (mem.lAt ?? s.time) > 1.3) {
+    // (round seventeen: from the moment the book is open, src/core/reading.js READ.book.open; before it she is still
+    // lifting it and turning the cover, and the middle of the half-open book is not where a reader looks)
+    if (s.ending === 'sensor' && present('jo') && s.jo.action === 'sit' && s.jo.book && (s.jo.readT == null || s.jo.readT >= 6.2) && !(s.jo.lookUp > 0.01) && !(s.jo.leaf > 0.02) && D.book && D.book.visible && s.camera.shot === 'readClose' && s.time - (mem.lAt ?? s.time) > 1.3) {
       const em = figs.jo.meshes.find((m) => m.userData.role === 'eyes');
       if (em) { const P = em.geometry.attributes.position, n = P.count, vv = new V3();
         if (!mem.eyeIds) { let mx = 0; for (let i = 0; i < n; i++) mx += P.getX(i) / n; mem.eyeIds = [0, 1].map((sd) => { const ids = []; for (let i = 0; i < n; i++) if ((P.getX(i) > mx ? 0 : 1) === sd) ids.push(i); let z1 = -9, z0 = 9; for (const i of ids) { z1 = Math.max(z1, P.getZ(i)); z0 = Math.min(z0, P.getZ(i)); } return { ids, front: ids.filter((i) => P.getZ(i) > z1 - (z1 - z0) * 0.08) }; }); }

@@ -6,6 +6,7 @@ import { isWaterBeat } from '../core/beats.js';
 import { ANCHORS, JO_START, JO_SIT, HATCH, TAM_ROOF, stairPoint } from '../core/layout.js';
 import { TEXT } from './script.js';
 import { TV } from '../core/surface.js';
+import { READ } from '../core/reading.js';
 
 const POUR = 1.8;                                   // the pose the game is named for, held this long
 const LOOKS = ['marlow', 'city', 'chair', 'hatch', 'sensor'];
@@ -103,7 +104,7 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
         bus.emit(EV.JO_SCOOP, { source: 'dry' }); say('jo', TEXT.jo.dry); state.valve.found = true; refreshHot();
         j.skyUntil = state.time + 2.8;   // (and she looks up at the sky that has not rained: her face comes out from under the brim)
         // the picture goes to the brass tap and she turns to look at it while her line plays: no hunting
-        showValve = 7.0;   // (round thirteen: 8.5, and with nothing touched the night stood 13 s before water moved: tools/guide.mjs stall)
+        showValve = 6.3;   // (round thirteen: 8.5, and with nothing touched the night stood 13 s before water moved: tools/guide.mjs stall. Round seventeen: 7.0 to 6.3, her slower walk to the tap took 0.7 s more)
         at(2.4, () => jo.whenFree(() => jo.turnTo(headingTo(ANCHORS.valve.pos))));
         at(4.6, () => { if (!state.valve.fills && state.beat === 'n3_water') say('jo', TEXT.jo.valve); });
         return;
@@ -250,7 +251,7 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
     state.pots.forEach((p) => { p.watered = false; p.wet = 0; p.lift = Math.min(p.lift, 0.15); p.growth = Math.max(0, p.tray ? n - 2 : n - 1); });
     Object.assign(state.barrel, [{ scoops: 3, level: 0.8 }, { scoops: 4, level: 0.56 }, { scoops: 1, level: 0.14 }][n - 1]);
     // she is already awake, at the foot of the stairs, when the night comes up. Nobody appears out of nothing.
-    cut(n === 1 ? 'beds' : n === 2 ? 'hatch' : 'barrel'); jo.place({ present: true, action: 'idle', cup: 0, cupHeld: true, carrying: false, cupGiven: 0, offer: 0, noCup: false, book: false, page: 0, hatOff: false, hatAt: null, target: null, heading: Math.PI / 2, y: stairPoint(1).y, pos: LANDING });
+    cut(n === 1 ? 'beds' : n === 2 ? 'hatch' : 'barrel'); jo.place({ present: true, action: 'idle', cup: 0, cupHeld: true, carrying: false, cupGiven: 0, offer: 0, noCup: false, book: false, page: 0, readT: null, hatOff: false, hatAt: null, target: null, heading: Math.PI / 2, y: stairPoint(1).y, pos: LANDING });
     fade(1); ui.clearLine(); ritual(false);
     if (n > 1) at(0.1, () => say('time', TEXT['night' + n], 3.4));   // the title is on the dark before the roof comes up
     at(n === 1 ? 3.6 : 5.0, () => marlow('open'));
@@ -314,7 +315,7 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
         // neighbour's folding chair already carried over to the end of the shelf, in the stair light.
         state.epilogue = 'read'; state.chairAt = { ...CHAIR_READ };
         Object.assign(state, { hatchOpen: false, lampOn: false });
-        jo.place({ present: false, action: 'below', cup: 0, cupHeld: false, noCup: true, book: false, page: 0, lookUp: 0, leaf: 0, seat: null, sitK: 0, hatOff: false, hatAt: null, target: null, pos: LANDING });
+        jo.place({ present: false, action: 'below', cup: 0, cupHeld: false, noCup: true, book: false, page: 0, lookUp: 0, leaf: 0, seat: null, sitK: 0, readT: null, hatOff: false, hatAt: null, target: null, pos: LANDING });
         ritual(true, 3.6);
         at(4.4, () => state.pots.forEach((p) => { p.watered = true; p.wet = 0.7; }));   // the mist reaches them, and they stand
         at(4.0, () => marlow('epSensor', 3.4));
@@ -438,22 +439,22 @@ export function createArc({ state, bus, render, ui, jo, tam, say, fade }) {
     if (b === 'epilogue' && epi) {
       // by sensor: she lowers herself into the chair, backing the last step onto the seat
       if (epi.sitFrom != null && epi.sat == null && j.action === 'sit') {
-        const k = smooth(0, 1.3, state.beatTime - epi.sitFrom); j.sitK = k;
+        const k = smooth(0, 1.3, state.beatTime - epi.sitFrom); j.sitK = k; j.readT = state.beatTime - epi.sitFrom - 1.3;
         j.pos.x = CHAIR_FRONT.x + (CHAIR_READ.x - CHAIR_FRONT.x) * k; j.pos.z = CHAIR_FRONT.z + (CHAIR_READ.z - CHAIR_FRONT.z) * k;
         if (k >= 1) epi.sat = state.beatTime;
       }
       // then the book opens; a little later one page turns, and her free hand goes out to the nearest leaf
       if (epi.sat != null && j.action === 'sit') {
-        const since = state.beatTime - epi.sat;
+        const since = state.beatTime - epi.sat; j.readT = since;   // (round seventeen: the one clock her hands keep: src/core/reading.js)
         // the hat comes off and goes on the deck by her right foot, clear of the seat: not working tonight. Then the book opens.
-        if (!j.hatOff && since > 0.2) { j.hatOff = true; const h = CHAIR_READ.heading; j.hatAt = { x: CHAIR_READ.x + Math.sin(h) * 0.5 + Math.cos(h) * 0.5, y: 0.012, z: CHAIR_READ.z + Math.cos(h) * 0.5 - Math.sin(h) * 0.5, ry: 0.6 }; }   // (round twelve: 15 cm further forward, past her knee, so her sleeve clears the seat's edge on the way down: tools/clash.mjs)   // (round ten: on the shelf side, so her arm is never behind the open lid)   // (beside the chair, not in front: on its way down it never passes between the camera and the book in her lap)
-        if (!j.book && since > 1.6) j.book = true;
+        if (!j.hatOff && since > READ.hat.reach[0]) { j.hatOff = true; const h = CHAIR_READ.heading; j.hatAt = { x: CHAIR_READ.x + Math.sin(h) * 0.12 - Math.cos(h) * 0.34, y: 0.012, z: CHAIR_READ.z + Math.cos(h) * 0.12 + Math.sin(h) * 0.34, ry: h }; }   // (round seventeen: by her right foot, where her hand can put it down, turned as it was on her head)   // (round twelve: 15 cm further forward, past her knee, so her sleeve clears the seat's edge on the way down: tools/clash.mjs)   // (round ten: on the shelf side, so her arm is never behind the open lid)   // (beside the chair, not in front: on its way down it never passes between the camera and the book in her lap)
+        if (!j.book && since > READ.book.reach[0]) j.book = true;   // (round seventeen: only once the hat is down and her hand back)
         // the one clear beat, and nothing else: the sky pales and a first bird sings; she looks up from the page at it, a
         // long moment, and goes back to her book. Nobody needed her up here tonight. She came anyway.
         if (since > 4.0) state.sky.dawn = Math.min(0.4, state.sky.dawn + dt * 0.08);
-        if (since > 6.2 && !epi.touched) { epi.touched = true; bus.emit(EV.LEAF_TOUCH, { pot: 'p1' }); }
-        j.leaf = 0; j.lookUp = smooth(7.0, 7.9, since) * (1 - smooth(10.0, 11.0, since));   // one glance, then back to the page
-        if (since > 17.0 && !epi.ended) { epi.ended = true; enter('end'); }
+        if (since > 7.0 && !epi.touched) { epi.touched = true; bus.emit(EV.LEAF_TOUCH, { pot: 'p1' }); }
+        j.leaf = 0; j.lookUp = smooth(8.4, 9.3, since) * (1 - smooth(11.4, 12.4, since));   // one glance, then back to the page
+        if (since > 18.2 && !epi.ended) { epi.ended = true; enter('end'); }
       }
       if (epi.dip != null && epi.dip < 1) {
         const was = epi.dip; epi.dip = Math.min(1, epi.dip + dt / 2.6); j.dip = Math.sin(Math.PI * epi.dip);

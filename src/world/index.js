@@ -3,7 +3,7 @@
 // this one builds them, places the things people carry (the tray, the bucket, the stake, the cup) from the
 // people's own bones, and hands each figure the few world points its pose needs.
 import * as THREE from 'three';
-import { Batch, paint, smooth, clamp, follow } from './kit.js';
+import { Batch, paint, smooth, clamp, follow, lerp } from './kit.js';
 import { createHot } from './hot.js';
 import { buildSky } from './sky.js';
 import { buildCity } from './city.js';
@@ -20,6 +20,7 @@ import { createTam, makeTray, makeBucket, TRAY_SLOTS, BUCKET } from './tam.js';
 import { Batch as B2, box as box2, xf as xf2, mix as mix2 } from './kit.js';
 import { createWater } from './water.js';
 import { beatIndex } from '../core/beats.js';
+import { READ, at } from '../core/reading.js';
 import { ANCHORS } from '../core/layout.js';
 
 // The tray. The neighbour carries it by its two short ends, held out at the chest; it is placed in their figure space
@@ -38,9 +39,18 @@ const BOOK_LOCAL = new THREE.Matrix4().compose(new THREE.Vector3(0.0, 0.64, 0.3)
 // (Figure space of the seated rig: the hips are 0.31 m behind the root, the knees 0.05 m in front of it, the thighs'
 // top at about 0.57 m.) Both hands hold its outer edges, the elbows down at her sides.
 const BOOK_CHAIR = new THREE.Matrix4().compose(new THREE.Vector3(0.0, 0.92, 0.22), new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.95, 0, 0)), new THREE.Vector3(1, 1, 1));
-const BOOK_GRIP = { L: new THREE.Vector3(0.12, -0.045, -0.1), R: new THREE.Vector3(-0.12, -0.045, -0.1) };   // the wrists under the lower edge, a hand in from each corner: both palms are on the boards
+const BOOK_GRIP = { L: new THREE.Vector3(0.199, 0.002, -0.032), R: new THREE.Vector3(-0.112, -0.012, -0.147) };   // (round seventeen, second pass: the left hand round the cover's outer edge, the right under its lower corner, the fingers flat on the back of the boards and the palm against it; found by a search over the wrist and the hand's turn, scored on contact: tools/guide.mjs readgrip)   // (round seventeen: up against the boards at the lower outer corners, the fingers round the edge; they were 4.5 cm under it, the owner: "hardly holding")   // the wrists under the lower edge, a hand in from each corner: both palms are on the boards
 // shut, carried in the right hand at her side: hand space (the bone points down the fingers), the spine against the palm
-const BOOK_CARRY = new THREE.Matrix4().compose(new THREE.Vector3(-0.03, -0.1, 0.03), new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, Math.PI / 2)), new THREE.Vector3(1, 1, 1));
+// (round seventeen: the owner, "her hand is hardly holding the book": her fist was pressed flat on the cover. Now the
+// spine lies across her palm, the covers either side of her fingers and thumb, the book hanging below her hand, and her
+// fingers close round it. Hand space: -y down the fingers, z across the knuckles, the left palm facing -x. Set once the
+// book's size is known: bookCarry() below.)
+const BOOK_CARRY = new THREE.Matrix4();
+// (round seventeen) shut, on her lap: flat on her thighs, the spine to her left (figure space: centred, its middle 12 cm
+// behind the root). BOOK_FLIP turns the cut volume shut (its halves folded) to lie as the uncut shut volume did in her hand.
+const BOOK_LAP = new THREE.Matrix4().compose(new THREE.Vector3(0.0, 0.64, -0.08), new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12, 0, 0)), new THREE.Vector3(1, 1, 1));
+const BOOK_FLIP = new THREE.Matrix4().makeRotationY(Math.PI);
+const BOOK_TIP = 0.2;   // each open half lies 0.2 rad up from flat (tools/assets.mjs TIP)
 // the book: one volume of a real encyclopedia set (CREDITS.md), open or shut, painted in the game's colours: a worn red
 // cloth board, cream page edges. tools/assets.mjs cuts the open spread out of the real volume.
 const bookPaint = (M) => /page/.test(M.name) ? { tint: mix2('paper', 'tag', 0.35) }
@@ -114,6 +124,19 @@ export function createWorld(render, state, bus) {
   const grip = (G, m) => ({ L: G.L.clone().applyMatrix4(m), R: G.R.clone().applyMatrix4(m), az: 0, k: 1 });
   let t = 0, leafFound = false, owner = null, sinceFlip = 9;
   const leafAt = new THREE.Vector3(), offerAt = new THREE.Vector3(), offerCup = new THREE.Vector3(), handL = new THREE.Vector3(), bucketAt = new THREE.Vector3(), bucketGrip = new THREE.Vector3(), bucketWater = new THREE.Vector3();
+  // the book's halves (round seventeen): the cut volume's right-hand half (from her, book -x) stays; the left (+x) is
+  // the cover and pages that fold over it shut and swing open over the spine
+  const bookHalves = { fixed: book.children.filter((c) => /L(_|$)/.test(c.userData.part)), move: book.children.filter((c) => /R(_|$)/.test(c.userData.part)) };
+  const bookSize = (() => { const bx = new THREE.Box3(); for (const c of bookHalves.fixed) { c.geometry.computeBoundingBox(); bx.union(c.geometry.boundingBox); } return { d: -bx.min.x, t: bx.max.y - bx.min.y }; })();
+  { const bx = new THREE.Box3(); bookShut.traverse((o) => { if (o.isMesh) { o.geometry.computeBoundingBox(); bx.union(o.geometry.boundingBox); } });
+    const w = bx.max.x - bx.min.x, th = bx.max.y - bx.min.y;   // the shut volume: x across the cover from the spine, y through it, z along the spine
+    BOOK_CARRY.makeBasis(new THREE.Vector3(0, -1, 0), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1)).setPosition(-(0.022 + th / 2), -(0.045 + w / 2), -0.01); }
+  const BOOK_SIDE_R = new THREE.Vector3(-bookSize.d - 0.03, 0.02, -0.07);   // her right wrist beside the shut book's fore-edge on her lap
+  const BOOK_TOP_L = new THREE.Vector3(-0.09, bookSize.t + 0.035, -0.06).applyAxisAngle(new THREE.Vector3(0, 0, 1), -(Math.PI - BOOK_TIP));   // her left wrist resting on the cover (in the cover's frame)
+  const _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _m3 = new THREE.Matrix4(), _g1 = new THREE.Vector3(), _g2 = new THREE.Vector3(), _z = new THREE.Vector3(0, 0, 1);
+  const _lp = [new THREE.Vector3(), new THREE.Quaternion(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Quaternion(), new THREE.Vector3()];
+  // a matrix k of the way to another (place and turn); pre: the other is already in the world
+  function lerpM(a, b, k) { a.decompose(_lp[0], _lp[1], _lp[2]); b.decompose(_lp[3], _lp[4], _lp[5]); _lp[0].lerp(_lp[3], k); _lp[1].slerp(_lp[4], k); return a.compose(_lp[0], _lp[1], _lp[2].set(1, 1, 1)); }
   let cupK = 1, bookK = 0;                          // 1 the cup is in her hand, 0 it is hooked at her hip
   // hooked on her belt by its handle while both hands are on the tray (round twelve: it hung in the air beside her hip).
   // In the pelvis frame: the top of the handle goes over the waistband behind her right hip, a little inside the
@@ -200,14 +223,31 @@ export function createWorld(render, state, bus) {
       // Jo: her hands go under the tray while it changes hands, and stay there a moment after it is hers
       env.trayHands = joHands.k > 0.002 ? joHands : null;
       bucketWater.copy(BUCKET_DOWN); bucketWater.y += 0.24; env.bucketWater = bucket.visible && !env.bucketHeld ? bucketWater : null;
-      // the book: on her knees once she has sat; her hands hold its edges
-      bookK = follow(bookK, J.present && J.book ? 1 : 0, dt, 3);
-      book.visible = bookK > 0.5;
+      // the book (round seventeen: src/core/reading.js). One book, the real volume cut open at its spine: it comes up shut
+      // in her left hand (the cover folded over the pages); as she sits she lays it on her lap, her hand resting on it.
+      // Once the hat is down her right hand takes its far edge, both close on it, lift it to reading height, and her
+      // left hand swings the cover open over the spine. Nothing about it moves unless a hand has it.
+      const rt = J.present && J.noCup && J.seat === 'chair' && J.readT != null ? J.readT : null, BR = READ.book;
+      book.visible = !!(J.present && J.noCup); bookShut.visible = false; env.carryBook = book.visible && rt == null; env.bookHands = null;
       if (book.visible) {
-        book.matrix.copy(jo.fig.rootMatrix).multiply(J.seat === 'chair' ? BOOK_CHAIR : BOOK_LOCAL); book.matrixWorldNeedsUpdate = true;
-        env.bookHands = { ...grip(BOOK_GRIP, book.matrix), k: smooth(0.5, 1, bookK), page: J.page || 0, pages: bookPages.copy(bookMid).applyMatrix4(book.matrix) };   // (pages: the middle of the open spread, where her eyes go: round fourteen)
-      } else env.bookHands = null;
-      env.carryBook = !!(J.present && J.noCup && !book.visible);
+        const open = rt == null ? 0 : at(BR.open, rt), lift = rt == null ? 0 : at(BR.lift, rt), lap = rt == null ? 0 : at(READ.lap, rt);
+        for (const c of bookHalves.move) c.rotation.z = (Math.PI - BOOK_TIP) * (1 - open);
+        for (const c of bookHalves.fixed) c.rotation.z = BOOK_TIP * (1 - open);
+        jo.fig.boneMatrix('handL', _m1, BOOK_CARRY).multiply(BOOK_FLIP);                      // in her hand
+        _m2.copy(BOOK_LAP); lerpM(_m2, BOOK_CHAIR, lift); _m2.premultiply(jo.fig.rootMatrix);   // on her lap .. up to read
+        if (lap < 1) lerpM(_m2, _m1, 1 - lap, true);
+        book.matrix.copy(_m2).multiply(_m3.makeTranslation(bookSize.d / 2 * (1 - open), 0, 0)); book.matrixWorldNeedsUpdate = true;
+        if (rt != null) {
+          // the hands, in the book's frame: the right at the fore-edge (from the side while it lies on her lap, under its
+          // lower corner once it is up); the left on the cover, riding with it as it swings open
+          const R = _g1.copy(BOOK_SIDE_R).lerp(BOOK_GRIP.R, lift), L = _g2.copy(BOOK_TOP_L).lerp(BOOK_GRIP.L, open);
+          L.applyAxisAngle(_z, (Math.PI - BOOK_TIP) * (1 - open));
+          const grab = at(BR.grip, rt);
+          env.bookHands = { L: L.applyMatrix4(book.matrix), R: R.applyMatrix4(book.matrix), k: open, page: J.page || 0, pages: bookPages.copy(bookMid).applyMatrix4(book.matrix),
+            kL: lap, kR: at(BR.reach, rt), tiltL: lerp(0.15, 0.16, open), tiltR: lerp(-0.1, -0.47, lift), curlL: lerp(0.3, 0.74, open) + 0.25 * grab * (1 - open), curlR: lerp(0.3, 0.95, grab),
+            rollL: lerp(1.35, -0.87, open), rollR: lerp(0.15, 1.5, lift), azL: lerp(0, -1.04, open), azR: lerp(0, -0.05, lift), thL: lerp(lerp(0.2, 0.6, grab), 0.12, open), thR: lerp(0.2, 0.93, grab) };
+        }
+      }
       // the leaf she touches: the basil's (for 2A, when it is big enough: it is), a low one on the side toward her chair
       if (J.leaf > 0.001) { if (!leafFound) { pots.soil(1, _p2); _p2.y += 0.24; _p2.z -= 0.14; _p2.x -= 0.05; pots.leafNear(1, _p2, leafAt); leafFound = true; } env.leaf = leafAt; }   // a low leaf on her side of the plant: the arm goes out below her face, clear of the feed line's hoop
       else { env.leaf = null; leafFound = false; }
@@ -217,9 +257,8 @@ export function createWorld(render, state, bus) {
       jo.update(state, env, dt, t);
       if (owner === 'jo') trayOnHands();
       trayPots();
-      // the shut book rides in her right hand until she sits and opens it
-      bookShut.visible = env.carryBook;
-      if (bookShut.visible) { jo.fig.boneMatrix('handL', bookShut.matrix, BOOK_CARRY); bookShut.matrixWorldNeedsUpdate = true; }
+      // (the shut book rides in her left hand: the same book, above; bookShut is no longer drawn)
+      if (env.carryBook) { jo.fig.boneMatrix('handL', _m1, BOOK_CARRY).multiply(BOOK_FLIP).multiply(_m3.makeTranslation(bookSize.d / 2, 0, 0)); book.matrix.copy(_m1); book.matrixWorldNeedsUpdate = true; }
       // the cup: in her hand, or hooked at her hip while both hands are on the tray
       cupK = follow(cupK, J.cupHeld !== false ? 1 : 0, dt, 12);
       if (J.present && cupK < 0.999) {

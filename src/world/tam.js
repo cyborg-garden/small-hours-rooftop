@@ -27,7 +27,8 @@ export function makeBucket() {
 
 export function createTam() {
   const tskin = { dark: shade('tamSkin', 0.5), light: mix('tamSkin', 'potLit', 0.2), lo: 0.08, hi: 0.36 };
-  const fig = createPerson('tam', { height: 1.78, parts: REAL ? (M) => {
+  const fig = createPerson('tam', { stride: 1,   // (round seventeen: his own short, tired step; the knee and foot are made a person's as hers are, person.js gait())
+    height: 1.78, parts: REAL ? (M) => {
     if (/casualsuit.*_top/.test(M.name)) return { ramp: { dark: shade('tamCoat', 0.5), light: mix('tamCoat', 'winCool', 0.15), lo: 0.03, hi: 0.3 }, role: 'torso', side: THREE.DoubleSide };
     if (/casualsuit.*_legs/.test(M.name)) return { ramp: { dark: shade('tamTrousers', 0.6), light: mix('tamTrousers', 'barrel', 0.5), lo: 0.05, hi: 0.45 }, role: 'legs', side: THREE.DoubleSide };
     if (/shoes/.test(M.name)) return { ramp: { dark: shade('barrelBand', 0.7), light: mix('barrelBand', 'barrel', 0.6), lo: 0.05, hi: 0.5 }, role: 'feet', side: THREE.DoubleSide };
@@ -61,6 +62,7 @@ export function createTam() {
     p['h' + n + 'm'] = lerp(p['h' + n + 'm'], 1, k); p['h' + n + 'az'] = lerp(p['h' + n + 'az'], az, k); p['h' + n + 'tilt'] = lerp(p['h' + n + 'tilt'], tilt, k); p['curl' + n] = lerp(p['curl' + n], curl, k);
   };
   const walk = clipSpeed(fig, 'Walk_Formal_Loop', clipDur('Walk_Formal_Loop')), CYCLE = walk.speed * clipDur('Walk_Formal_Loop');
+  fig.lockFeet = true; fig.gait = { cycle: CYCLE, dur: clipDur('Walk_Formal_Loop') };   // (round seventeen: tools/gait.mjs reads the step from here)
   function pose(state, env, t, dt) {
     const T = state.tam, p = fig.rest(), calm = state.reducedMotion;
     const climbing = T.stage === 'climbing', leaving = T.stage === 'leaving', deck = T.stage === 'out' || T.stage === 'back' || (T.stage === 'home' && T.stageT > 0.5), still = !climbing && !leaving && !deck;
@@ -108,6 +110,7 @@ export function createTam() {
       p.cReach = 0.5 * k; p.cIdle = 1 - p.cReach; fig.time.Interact = clipDur('Interact') * 0.4;
       armTo(p, 'L', g, k, 0, 0.25, 0); p.hLroll = lerp(p.hLroll, -1.35, k); p.thL = 0.2; p.pLx = 0.7; p.pLy = -0.9; p.pLz = -0.3;
       p.nkRX = lerp(p.nkRX, 0.16, k); p.hdRX = lerp(p.hdRX, -0.02, k);   // and they look down at it
+      if (!calm) { p.hdRX += 0.07 * k * Math.sin(t * 0.7 + 0.4); p.hdRY += 0.06 * k * Math.sin(t * 0.38 + 2); }   // (round seventeen: from the cup up to her face and back, slowly; held dead still for 4 s while her slower walk brought her: tools/scene.mjs frozen)
     }
     return p;
   }

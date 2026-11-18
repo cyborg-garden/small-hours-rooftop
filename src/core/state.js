@@ -17,7 +17,7 @@ export function createState(seed = 340) {
     jo: { present: false, pos: { x: JO_START.x, z: JO_START.z }, y: 0, heading: JO_START.heading,
       action: 'below',  // below | climb | idle | walk | scoop | pour | pourEmpty | take | carry | place | sit | descend | plant
       actionT: 0, actionDur: 0, target: null, cup: 0, cupHeld: true, carrying: false, walked: 0,
-      noCup: false, book: false, page: 0, hatOff: false, hatAt: null, seat: null, sitK: 0, leaf: 0 },   // the night after, by sensor: no cup, a book, and the hat comes off
+      noCup: false, book: false, page: 0, hatOff: false, hatAt: null, seat: null, sitK: 0, readT: null, leaf: 0 },   // the night after, by sensor: no cup, a book, and the hat comes off
     speaking: null,   // { who, until }: who is talking right now, for the talking clip and the listener's head
     tam: { present: false, stage: 'below', // below | climbing | top | handoff | leaving | gone | watering
       t: 1, pos: { x: -6, z: 4.25 }, y: -2.6, walked: 0, heading: Math.PI / 2, hasTray: true, bucket: false },

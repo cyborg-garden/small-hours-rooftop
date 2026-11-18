@@ -96,6 +96,7 @@ const CLIP_KEYS = [['cIdle', 'Idle_Loop'], ['cWalk', 'Walk_Formal_Loop'], ['cSit
   ['cCarry', 'Walk_Carry_Loop'], ['cPick', 'PickUp_Table'], ['cReach', 'Interact'], ['cCrouch', 'Crouch_Idle_Loop'], ['cTalk', 'Idle_Talking_Loop'], ['cNod', 'Yes']];
 const SPINE = [['spine_01', 'sp', 0.5], ['spine_02', 'sp', 0.5], ['spine_03', 'ch', 1], ['neck_01', 'nk', 1], ['Head', 'hd', 1]];
 const FINGERS = ['index', 'middle', 'ring', 'pinky'];
+export const GAIT = { thigh: 1.22, kneeFrom: 0.35, knee: 0.6, foot: 0.75 };   // the walk's step and knee (round seventeen; see gait() below)
 
 export function createPerson(key, S = {}) {
   const P = PACK.people[key], nb = P.bones.length;
@@ -182,7 +183,7 @@ export function createPerson(key, S = {}) {
     ikL: 0, ikR: 0, aLx: D.sw + 0.05, aLy: D.wrist + 0.03, aLz: 0.04, aRx: -D.sw - 0.05, aRy: D.wrist + 0.03, aRz: 0.04,
     pLx: 0.35, pLy: -0.1, pLz: -1, pRx: -0.35, pRy: -0.1, pRz: -1,
     hLm: 0, hLaz: 0, hLtilt: 0, hLroll: 0, hRm: 0, hRaz: 0, hRtilt: 0, hRroll: 0, curlL: 0.35, curlR: 0.35, thL: 0.2, thR: 0.2,
-    legIK: 0, fLx: D.hw, fLy: 0, fLz: 0, fLp: 0, fRx: -D.hw, fRy: 0, fRz: 0, fRp: 0, toe: 0.14, straight: 0,
+    gripL: 0, gripR: 0, legIK: 0, fLx: D.hw, fLy: 0, fLz: 0, fLp: 0, fRx: -D.hw, fRy: 0, fRz: 0, fRp: 0, toe: 0.14, straight: 0,
   });
   const cur = rest();
   const blend = (a, b, t) => { for (const k in a) a[k] += (b[k] - a[k]) * t; return a; };
@@ -214,6 +215,34 @@ export function createPerson(key, S = {}) {
     }
     for (let b = 0; b < nb; b++) { const o = b * 4; bones[b].quaternion.set(acc[o], acc[o + 1], acc[o + 2], acc[o + 3]).normalize(); }
     bones[iPelvis].position.copy(pel).multiplyScalar(pelvisScale);
+    const ww = sum > 1e-4 ? Math.max(0, p.cWalk) / sum : 0;
+    if (ww > 1e-3) {   // (the longer step lowers the hips by as much as it would lift the standing foot, so that foot stays on the deck)
+      const low = () => { inner.updateMatrixWorld(true); return Math.min(_c.setFromMatrixPosition(B.foot_l.matrixWorld).y, _c.setFromMatrixPosition(B.foot_r.matrixWorld).y); };
+      const y0 = low(); gait(ww); const dy = y0 - low();
+      _v.set(0, dy, 0); wquat(bones[iPelvis].parent, _q).invert(); bones[iPelvis].position.add(_v.applyQuaternion(_q).multiplyScalar(1 / scale));
+    }
+  }
+  // (round seventeen) the walk, made a person's. The library's walk lifts the swinging knee to 89 degrees and takes short
+  // steps, so at her pace it went at 164 steps a minute: high knees, quick feet, a horse's trot (the owner). People bend
+  // the swinging knee about 60 degrees and step about 0.42 of their height. So, on top of the clip: each thigh swings
+  // further about its own mean (a longer step), and the knee's bend past 20 degrees is taken down. The stance leg (under
+  // 20 degrees) is the clip's. tools/gait.mjs measures the result against a person's walk.
+  let thighMean = null;
+  const scaleTurn = (q, k) => { if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w); const a = 2 * Math.acos(clamp(q.w, -1, 1)); if (a < 1e-6) return q.identity(); _a.set(q.x, q.y, q.z).normalize(); return q.setFromAxisAngle(_a, k(a)); };
+  function gait(w) {
+    if (!thighMean) { const c = clip('Walk_Formal_Loop'); thighMean = {};
+      for (const s of ['l', 'r']) { const bi = P.bones.findIndex((b) => b.name === 'thigh_' + s), m = new THREE.Quaternion(0, 0, 0, 0), q = new THREE.Quaternion();
+        for (let f = 0; f < c.frames; f++) { const o = (f * nb + bi) * 4; q.set(c.q[o], c.q[o + 1], c.q[o + 2], c.q[o + 3]); if (q.dot(m) < 0) q.set(-q.x, -q.y, -q.z, -q.w); m.x += q.x; m.y += q.y; m.z += q.z; m.w += q.w; }
+        thighMean[s] = m.normalize(); } }
+    for (const s of ['l', 'r']) {
+      const th = B['thigh_' + s], ca = B['calf_' + s], m = thighMean[s];
+      scaleTurn(_q.copy(m).invert().multiply(th.quaternion), (a) => a * (S.stride ?? GAIT.thigh)); th.quaternion.slerp(_q.premultiply(m), w);
+      let bend = 0; scaleTurn(_q.copy(restLocal['calf_' + s]).invert().multiply(ca.quaternion), (a) => { bend = a; return a <= GAIT.kneeFrom ? a : GAIT.kneeFrom + (a - GAIT.kneeFrom) * GAIT.knee; });
+      ca.quaternion.slerp(_q.premultiply(restLocal['calf_' + s]), w);
+      // and the swinging foot comes up level with the shin (a person's toes clear the deck), not left pointing down like a
+      // hoof as the clip has it: the more the knee is bent, the nearer the foot is to its rest angle on the shin
+      const fo = B['foot_' + s]; fo.quaternion.slerp(restLocal['foot_' + s], w * GAIT.foot * clamp((bend - GAIT.kneeFrom) / 0.5));
+    }
   }
   // world helpers. Bones are read and written in world space, so nothing here depends on how the rig's axes lie.
   const wpos = (bo, out) => out.setFromMatrixPosition(bo.matrixWorld);
@@ -236,6 +265,7 @@ export function createPerson(key, S = {}) {
   const footP = { l: new THREE.Vector3(), r: new THREE.Vector3() }, footQ = { l: new THREE.Quaternion(), r: new THREE.Quaternion() }, kneeP = { l: new THREE.Vector3(), r: new THREE.Vector3() }, T = new THREE.Vector3(), pole = new THREE.Vector3(), H = new THREE.Quaternion();
   const reach = { L: true, R: true };
 
+  const lock = { s: null, p: new THREE.Vector3() };   // the walking foot held on the deck (solve, below)
   function solve(p) {
     base(p);
     inner.updateMatrixWorld(true);
@@ -277,9 +307,25 @@ export function createPerson(key, S = {}) {
       H.copy(footQ[s]); if (k > 0) H.slerp(_q.copy(rootQ).multiply(quat(p['f' + n + 'p'], sg * p.toe, 0, _q2)).multiply(restQ['foot_' + s]), k);
       setWorldQ(ft, H);
     }
+    // (round seventeen) walking, the foot on the deck stays where it came down. The longer step swings the leg through a
+    // wider arc, so the foot's speed under her is no longer even through the step and it slid on the boards. The lower
+    // foot is held where it landed (the leg solved to it, the foot keeping its own turn) until it is the other's turn.
+    // Off while the legs are on targets (stairs, standing) and while tools/gait measure the clip (fig.lockFeet false).
+    const wk = clamp(p.cWalk / Math.max(1e-4, CLIP_KEYS.reduce((a, [k]) => a + Math.max(0, p[k]), 0)));
+    if (api.lockFeet && wk > 0.5 && clamp(p.legIK) < 0.01) {
+      const yl = wpos(B.foot_l, _a).y, yr = wpos(B.foot_r, _b).y, s = lock.s && Math.abs(yl - yr) < 0.006 ? lock.s : yl < yr ? 'l' : 'r';
+      const ft = B['foot_' + s]; wpos(ft, _w);
+      if (s !== lock.s) { lock.s = s; lock.p.copy(_w); }
+      else { T.set(lock.p.x, _w.y, lock.p.z); const off = Math.hypot(T.x - _w.x, T.z - _w.z);
+        if (off > 0.2) lock.p.copy(_w);
+        else if (off > 1e-4) { wquat(ft, H); pole.copy(wpos(B['calf_' + s], _u)).sub(wpos(B['thigh_' + s], _c)); ik2(B['thigh_' + s], B['calf_' + s], ft, T, pole); setWorldQ(ft, H); } }
+    } else lock.s = null;
     // arms: the wrist onto its target, eased in from where the clip had it; then the hand turned; then the fingers
     for (const n of ['L', 'R']) {
-      const s = SIDE[n], k = clamp(p['ik' + n]); if (k <= 1e-3) { reach[n] = true; continue; }
+      const s = SIDE[n], k = clamp(p['ik' + n]);
+      if (k <= 1e-3) { reach[n] = true; const g = clamp(p['grip' + n] || 0);   // (round seventeen) the arm as the clip has it, the fingers closed round something carried
+        if (g > 1e-3) { for (const f of hand[s].fingers) f.bo.quaternion.slerp(_q.copy(f.rest).multiply(_q2.setFromAxisAngle(f.ax, p['curl' + n] * f.amt)), g); for (const f of hand[s].thumb) f.bo.quaternion.slerp(_q.copy(f.rest).multiply(_q2.setFromAxisAngle(f.ax, (0.25 + p['th' + n]) * f.amt)), g); }
+        continue; }
       const up = B['upperarm_' + s], lo = B['lowerarm_' + s], ha = B['hand_' + s], hd = hand[s];
       wpos(ha, _w); T.set(p['a' + n + 'x'], p['a' + n + 'y'], p['a' + n + 'z']).applyMatrix4(rootM); T.lerpVectors(_w, T, k);
       pole.set(p['p' + n + 'x'], p['p' + n + 'y'], p['p' + n + 'z']).applyQuaternion(rootQ);
@@ -293,7 +339,8 @@ export function createPerson(key, S = {}) {
     }
     inner.updateMatrixWorld(true);
   }
-  return {
+  const api = {
+    lockFeet: false,
     root, inner, meshes, skeleton, bones: B, D, rest, blend, cur, solve, time, reach, hand, restP,
     setFloor(fn) { floor = fn; },
     // the lids: 0 open .. 1 shut. Set every frame by whoever moves this person.
@@ -341,6 +388,7 @@ export function createPerson(key, S = {}) {
     },
     rootMatrix: rootM,
   };
+  return api;
 }
 
 // ---- the lids -----------------------------------------------------------------------------------------------------
@@ -376,7 +424,7 @@ export function createProp(key, spec = () => ({})) {
     for (let k = 0; k < M.count; k++) { nor[k * 3] = n8[k * 4] / 127; nor[k * 3 + 1] = n8[k * 4 + 1] / 127; nor[k * 3 + 2] = n8[k * 4 + 2] / 127; }
     geo.setAttribute('position', new THREE.BufferAttribute(arr(Float32Array, M.pos), 3)); geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(arr(Float32Array, M.uv), 2));
     geo.setIndex(new THREE.BufferAttribute(M.wide ? arr(Uint32Array, M.index) : arr(Uint16Array, M.index), 1));
-    const mesh = new THREE.Mesh(geo, painted(o.tex === undefined ? M.tex : o.tex, o)); mesh.name = key + (P.parts.length > 1 ? i : ''); mesh.castShadow = true; mesh.receiveShadow = true; g.add(mesh);
+    const mesh = new THREE.Mesh(geo, painted(o.tex === undefined ? M.tex : o.tex, o)); mesh.name = key + (P.parts.length > 1 ? i : ''); mesh.userData.part = M.name; mesh.castShadow = true; mesh.receiveShadow = true; g.add(mesh);
   });
   return g;
 }

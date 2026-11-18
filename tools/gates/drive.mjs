@@ -104,7 +104,9 @@ export async function drive({ check, name, classify, shotsOf = 6 }) {
       // chairnear: the reading chair back by the shelf's end, behind its near pot and the feed-line hoop (scene: readsit)
       if (how === 'chairnear') { G.state.__oldRead = true; const step = G.step; G.step = (...a) => { const s = G.state; if (s.chairAt && s.jo.seat === 'chair') { s.chairAt = { x: -1.78, z: 3.08, heading: -1.3 }; s.jo.pos.x = -1.78; s.jo.pos.z = 3.08; } return step(...a); }; }
       // bookearly: the open book out while she is still lowering herself (scene: readearly)
-      if (how === 'bookearly') { const step = G.step; G.step = (...a) => { const s = G.state; if (s.jo.seat === 'chair' && s.jo.action === 'sit' && (s.jo.sitK ?? 1) > 0.3) s.jo.book = true; return step(...a); }; }
+      if (how === 'bookearly') { const step = G.step; G.step = (...a) => { const s = G.state; if (s.jo.seat === 'chair' && s.jo.action === 'sit' && (s.jo.sitK ?? 1) > 0.3) s.jo.book = true; const r = step(...a);   // (round seventeen: and its cover swung open while she still lowers herself)
+        if (s.jo.seat === 'chair' && s.jo.action === 'sit' && (s.jo.sitK ?? 1) > 0.3 && (s.jo.sitK ?? 1) < 0.999 && D.book) for (const c of D.book.children) if (/R(_|$)/.test(c.userData.part || '')) c.rotation.z = 0;
+        return r; }; }
       // kneeltap: her old place at the tap, a hand closer, the head bowed into the pipe (pose: tapface, taphat)
       if (how === 'kneeltap') f.solve = (p) => solve(G.state.jo.action === 'scoop' && G.state.jo.target === 'valve' ? { ...p, hipZ: p.hipZ + 0.3, nkRX: p.nkRX + 0.3 } : p);
       // crouch: the old climb, the hips sunk a hand lower over feet that trail behind them (pose: crouch)

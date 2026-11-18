@@ -56,11 +56,12 @@ export function buildShelf(ctx) {
   const byTomato = { p: V(ANCHORS.p6.pos.x + 0.07, TOP_L + 0.1, S.lower.z + 0.07), rz: -0.04, rx: 0.03 };   // tied to the second tomato, on the front tier: in plain view, clear of an arm going by
   const cAmber = col('amber'), cGreen = col('marlow'), cDead = mix('barrelBand', 'marlowBox', 0.3), cur = new THREE.Color().copy(cAmber);
   // the feed line that maintenance fits once the shelf is on record (sensor ending, the night after)
-  const fb = new Batch(), fy = 1.22, fzc = (S.upper.z + S.lower.z) / 2;
-  for (const x of [S.x0 + 0.85, S.x1 - 0.3]) {   // (round fourteen: two hoops, not three. The one at the shelf's end by her chair stood between the phone's reading camera and the near pot, a pale band down the picture)
-    const pts = []; for (let k = 0; k <= 8; k++) { const a = Math.PI * k / 8; pts.push(V(x, fy * Math.sin(a) + 0.01, fzc + Math.cos(a) * 0.46)); } fb.add(tube(pts, 0.016, 5), 'barrelBand'); }
-  fb.add(tube([V(S.x0 + 0.75, fy, fzc), V(S.x1 - 0.2, fy, fzc)], 0.02, 5), 'barrelBand');
-  for (let k = 0; k < 3; k++) fb.add(cyl(0.012, 0.03, 0.06, 5), 'marlowBox', xf(S.x0 + 1.05 + k * 0.6, fy - 0.045, fzc));
+  // (round seventeen) on two posts behind the top tier, not on hoops over it: from the reading camera, which looks along
+  // the shelf, the near hoop was a dark arch drawn right across the shelf and the pots. tools/guide.mjs readhoop
+  const fb = new Batch(), fy = 1.22, fz = S.upper.z - S.depth / 2 - 0.06;
+  for (const x of [S.x0 + 0.85, S.x1 - 0.3]) fb.add(tube([V(x, 0.0, fz), V(x, fy + 0.03, fz)], 0.016, 5), 'barrelBand');
+  fb.add(tube([V(S.x0 + 0.75, fy, fz), V(S.x1 - 0.2, fy, fz)], 0.02, 5), 'barrelBand');
+  for (let k = 0; k < 3; k++) fb.add(cyl(0.012, 0.03, 0.06, 5), 'marlowBox', xf(S.x0 + 1.05 + k * 0.6, fy - 0.045, fz));
   const feed = fb.mesh(paint.quiet()); feed.visible = false;
   const group = new THREE.Group(); group.add(st.group, feed);
   const tmp = new THREE.Vector3();

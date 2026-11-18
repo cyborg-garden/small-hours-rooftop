@@ -21,11 +21,16 @@ export function stairGait(p, fig, worldX, facing) {
 // How fast a walk clip really travels: the speed of a foot while it is on the ground. Used to tie the clip's
 // phase to distance walked, so a planted foot stays where it was put.
 export function clipSpeed(fig, name, dur, key = 'cWalk') {
-  const p = fig.rest(); p.cIdle = 0; p[key] = 1; const z = [], y = [], N = 40, v = new THREE.Vector3();
+  // (round seventeen: the foot on the ground is the lower of the two, by a centimetre. Read off the lowest point of one
+  // foot it caught the bottom of the swing too, once the walk's knee came down, and the walk ran 10 percent off its feet)
+  const p = fig.rest(); p.cIdle = 0; p[key] = 1; const z = [], y = [], zr = [], yr = [], N = 60, v = new THREE.Vector3();
   fig.place(0, 0, 0, 0);
-  for (let i = 0; i <= N; i++) { fig.time[name] = dur * i / N; fig.solve(p); v.setFromMatrixPosition(fig.bones.foot_l.matrixWorld); z.push(v.z); y.push(v.y); }
-  const lo = Math.min(...y), sp = []; let strike = 0, zmax = -9;
-  for (let i = 0; i < N; i++) { if (y[i] < lo + 0.015 && y[i + 1] < lo + 0.015) sp.push((z[i] - z[i + 1]) / (dur / N)); if (z[i] > zmax) { zmax = z[i]; strike = i / N; } }
+  for (let i = 0; i <= N; i++) { fig.time[name] = dur * i / N; fig.solve(p); v.setFromMatrixPosition(fig.bones.foot_l.matrixWorld); z.push(v.z); y.push(v.y); v.setFromMatrixPosition(fig.bones.foot_r.matrixWorld); zr.push(v.z); yr.push(v.y); }
+  const sp = []; let strike = 0, zmax = -9;
+  for (let i = 0; i < N; i++) {
+    if (y[i] < yr[i] - 0.01 && y[i + 1] < yr[i + 1] - 0.01) sp.push((z[i] - z[i + 1]) / (dur / N));
+    if (yr[i] < y[i] - 0.01 && yr[i + 1] < y[i + 1] - 0.01) sp.push((zr[i] - zr[i + 1]) / (dur / N));
+    if (z[i] > zmax) { zmax = z[i]; strike = i / N; } }
   sp.sort((a, b) => a - b); fig.time[name] = 0;
   return { speed: sp.length ? sp[Math.floor(sp.length / 2)] : 1.4, strike };
 }
